@@ -46,20 +46,8 @@ func Structured(data []byte, opts ...Option) ([]*QR, error) {
 	}
 	cfg.boostECL = false // keep every symbol at the same level
 
-	if cfg.level > High {
-		return nil, ErrBadLevel
-	}
-	if cfg.minVersion < 1 {
-		cfg.minVersion = 1
-	}
-	if cfg.maxVersion > 40 {
-		cfg.maxVersion = 40
-	}
-	if cfg.minVersion > cfg.maxVersion || cfg.maxVersion < 1 || cfg.minVersion > 40 {
-		return nil, ErrBadVersion
-	}
-	if cfg.mask > 7 {
-		return nil, ErrBadMask
+	if err := cfg.normalizeAndValidate(); err != nil {
+		return nil, err
 	}
 
 	// Sixteen version-40 symbols bound the largest possible message.

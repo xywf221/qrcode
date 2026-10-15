@@ -187,6 +187,28 @@ func (c *config) saBits() int {
 	return saHeaderBits
 }
 
+// normalizeAndValidate clamps the version range into [1,40] and rejects an
+// invalid level, version range or mask, in place. It is the single place that
+// enforces these constraints, shared by build and Structured.
+func (c *config) normalizeAndValidate() error {
+	if c.level > High {
+		return ErrBadLevel
+	}
+	if c.minVersion < 1 {
+		c.minVersion = 1
+	}
+	if c.maxVersion > 40 {
+		c.maxVersion = 40
+	}
+	if c.minVersion > c.maxVersion || c.maxVersion < 1 || c.minVersion > 40 {
+		return ErrBadVersion
+	}
+	if c.mask > 7 {
+		return ErrBadMask
+	}
+	return nil
+}
+
 // An Option configures an encoding.
 type Option func(*config)
 
@@ -250,20 +272,8 @@ func newQR(data []byte, opts []Option) (*QR, error) {
 
 // build runs the encoding pipeline on an already-resolved configuration.
 func build(data []byte, cfg *config) (*QR, error) {
-	if cfg.level > High {
-		return nil, ErrBadLevel
-	}
-	if cfg.minVersion < 1 {
-		cfg.minVersion = 1
-	}
-	if cfg.maxVersion > 40 {
-		cfg.maxVersion = 40
-	}
-	if cfg.minVersion > cfg.maxVersion || cfg.maxVersion < 1 || cfg.minVersion > 40 {
-		return nil, ErrBadVersion
-	}
-	if cfg.mask > 7 {
-		return nil, ErrBadMask
+	if err := cfg.normalizeAndValidate(); err != nil {
+		return nil, err
 	}
 	if cfg.saTotal != 0 {
 		if cfg.saTotal < 1 || cfg.saTotal > 16 || cfg.saIndex < 0 || cfg.saIndex >= cfg.saTotal ||

@@ -429,7 +429,7 @@ func TestDecodeRoundtrip(t *testing.T) {
 }
 
 func TestDecodeKanjiRoundtrip(t *testing.T) {
-	sjis := []byte{0x93, 0x5F, 0x8A, 0xBF} // "点字"
+	sjis := []byte{0x93, 0x5F, 0x8E, 0x9A} // 点字
 	q := mustEncode(t, "", WithSegments(NewKanji(sjis)), WithLevel(Medium))
 	d, err := decodeSymbol(q)
 	if err != nil {

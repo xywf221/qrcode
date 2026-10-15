@@ -1,7 +1,7 @@
 # qrcode
 
-[![ci](https://github.com/dongm/qrcode/actions/workflows/ci.yml/badge.svg)](https://github.com/dongm/qrcode/actions/workflows/ci.yml)
-[![Go Reference](https://pkg.go.dev/badge/github.com/dongm/qrcode.svg)](https://pkg.go.dev/github.com/dongm/qrcode)
+[![ci](https://github.com/xywf221/qrcode/actions/workflows/ci.yml/badge.svg)](https://github.com/xywf221/qrcode/actions/workflows/ci.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/xywf221/qrcode.svg)](https://pkg.go.dev/github.com/xywf221/qrcode)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 
 A modern, zero-dependency QR code generator for Go. It implements ISO/IEC 18004
@@ -43,7 +43,7 @@ if err := q.WritePNG(w); err != nil {
 ## Install
 
 ```sh
-go get github.com/dongm/qrcode
+go get github.com/xywf221/qrcode
 ```
 
 Requires Go 1.24 or newer.

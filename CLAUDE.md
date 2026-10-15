@@ -7,7 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 A zero-dependency QR code generator implementing ISO/IEC 18004 (versions 1–40,
 levels L/M/Q/H, numeric/alphanumeric/byte/Kanji modes, ECI, Structured Append,
 optimal segmentation, all eight data masks). The module path is
-`github.com/dongm/qrcode`. The library has **no runtime dependencies** — keep it
+`github.com/xywf221/qrcode`. The library has **no runtime dependencies** — keep it
 that way.
 
 ## Commands

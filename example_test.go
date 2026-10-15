@@ -6,7 +6,7 @@ import (
 	"os"
 	"strings"
 
-	"github.com/dongm/qrcode"
+	"github.com/xywf221/qrcode"
 )
 
 // Example shows the basic encoding API. Because "HELLO" is alphanumeric it is

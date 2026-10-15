@@ -27,5 +27,5 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   `boombuler/barcode`, plus a full decoder round-trip test.
 - Fuzz tests, benchmarks, and a CI pipeline (build, vet, race, lint, fuzz).
 
-[Unreleased]: https://github.com/dongm/qrcode/compare/v1.0.0...HEAD
-[1.0.0]: https://github.com/dongm/qrcode/releases/tag/v1.0.0
+[Unreleased]: https://github.com/xywf221/qrcode/compare/v1.0.0...HEAD
+[1.0.0]: https://github.com/xywf221/qrcode/releases/tag/v1.0.0

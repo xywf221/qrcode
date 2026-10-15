@@ -177,6 +177,8 @@ widely between runs, so treat these as rough magnitudes:
 | Benchmark | ns/op |
 | --- | --- |
 | `EncodeForcedMask` (url, v4) | ~8 µs |
+| `EncodePNG/short` (url, v4, encode + PNG) | ~145 µs |
+| `EncodePNG/long` (url, v8, encode + PNG) | ~350 µs |
 | `Encode/url` (v4, 8-mask search) | ~110 µs |
 | `Encode/numeric` (v7) | ~235 µs |
 | `Encode/alnum` (v13) | ~625 µs |

@@ -99,6 +99,9 @@ var (
 	ErrBadMask        = errors.New("qrcode: mask out of range [0,7]")
 	ErrInvalidSegment = errors.New("qrcode: segment data is not valid for its mode")
 	ErrEmptySegments  = errors.New("qrcode: explicit segments must not be empty")
+
+	ErrStructuredAppend = errors.New("qrcode: invalid structured-append header")
+	ErrTooManySymbols   = errors.New("qrcode: data needs more than 16 structured-append symbols")
 )
 
 // A QR is an encoded, immutable QR symbol. All of its methods are safe for
@@ -148,6 +151,11 @@ type config struct {
 	eci         int
 	segments    []segment
 	explicitSeg bool
+
+	// Structured Append header fields; saTotal == 0 means "no header".
+	saIndex  int
+	saTotal  int
+	saParity int
 }
 
 func defaultConfig() config {
@@ -159,6 +167,24 @@ func defaultConfig() config {
 		boostECL:   true,
 		eci:        -1,
 	}
+}
+
+// saHeader returns the Structured Append header to emit, or nil for a plain
+// symbol.
+func (c *config) saHeader() *saHeader {
+	if c.saTotal <= 0 {
+		return nil
+	}
+	return &saHeader{index: c.saIndex, total: c.saTotal, parity: c.saParity}
+}
+
+// saBits returns the number of bits the Structured Append header occupies, zero
+// when no header is present.
+func (c *config) saBits() int {
+	if c.saTotal <= 0 {
+		return 0
+	}
+	return saHeaderBits
 }
 
 // An Option configures an encoding.
@@ -219,6 +245,11 @@ func newQR(data []byte, opts []Option) (*QR, error) {
 	for _, o := range opts {
 		o(&cfg)
 	}
+	return build(data, &cfg)
+}
+
+// build runs the encoding pipeline on an already-resolved configuration.
+func build(data []byte, cfg *config) (*QR, error) {
 	if cfg.level > High {
 		return nil, ErrBadLevel
 	}
@@ -234,8 +265,14 @@ func newQR(data []byte, opts []Option) (*QR, error) {
 	if cfg.mask > 7 {
 		return nil, ErrBadMask
 	}
+	if cfg.saTotal != 0 {
+		if cfg.saTotal < 1 || cfg.saTotal > 16 || cfg.saIndex < 0 || cfg.saIndex >= cfg.saTotal ||
+			cfg.saParity < 0 || cfg.saParity > 0xFF {
+			return nil, ErrStructuredAppend
+		}
+	}
 
-	segs, version, err := layout(data, &cfg)
+	segs, version, err := layout(data, cfg)
 	if err != nil {
 		return nil, err
 	}
@@ -243,14 +280,14 @@ func newQR(data []byte, opts []Option) (*QR, error) {
 	level := cfg.level
 	if cfg.boostECL {
 		for l := High; l > level; l-- {
-			if requiredBits(segs, version, cfg.eci) <= dataBits(version, l) {
+			if requiredBits(segs, version, cfg.eci)+cfg.saBits() <= dataBits(version, l) {
 				level = l
 				break
 			}
 		}
 	}
 
-	dataCW, err := assembleCodewords(segs, version, level, cfg.eci)
+	dataCW, err := assembleCodewords(segs, version, level, cfg.eci, cfg.saHeader())
 	if err != nil {
 		return nil, err
 	}

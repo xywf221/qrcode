@@ -171,7 +171,7 @@ func layout(data []byte, cfg *config) ([]segment, int, error) {
 			}
 		}
 		for v := cfg.minVersion; v <= cfg.maxVersion; v++ {
-			if requiredBits(cfg.segments, v, cfg.eci) <= dataBits(v, cfg.level) {
+			if requiredBits(cfg.segments, v, cfg.eci)+cfg.saBits() <= dataBits(v, cfg.level) {
 				return cfg.segments, v, nil
 			}
 		}
@@ -186,7 +186,7 @@ func layout(data []byte, cfg *config) ([]segment, int, error) {
 			plans[vr] = planSegments(data, vr)
 			planned[vr] = true
 		}
-		if requiredBits(plans[vr], v, cfg.eci) <= dataBits(v, cfg.level) {
+		if requiredBits(plans[vr], v, cfg.eci)+cfg.saBits() <= dataBits(v, cfg.level) {
 			return plans[vr], v, nil
 		}
 	}
@@ -194,10 +194,14 @@ func layout(data []byte, cfg *config) ([]segment, int, error) {
 }
 
 // assembleCodewords encodes segs into the final interleaved data+EC codeword
-// sequence ready for placement.
-func assembleCodewords(segs []segment, ver int, l Level, eci int) ([]byte, error) {
+// sequence ready for placement. A non-nil sa writes the Structured Append
+// header ahead of the data stream.
+func assembleCodewords(segs []segment, ver int, l Level, eci int, sa *saHeader) ([]byte, error) {
 	capacity := dataCodewords(ver, l)
 	var bb bitBuffer
+	if sa != nil {
+		sa.write(&bb)
+	}
 	if eci >= 0 {
 		writeECI(&bb, eci)
 	}

@@ -1,5 +1,9 @@
 # qrcode
 
+[![ci](https://github.com/dongm/qrcode/actions/workflows/ci.yml/badge.svg)](https://github.com/dongm/qrcode/actions/workflows/ci.yml)
+[![Go Reference](https://pkg.go.dev/badge/github.com/dongm/qrcode.svg)](https://pkg.go.dev/github.com/dongm/qrcode)
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+
 A modern, zero-dependency QR code generator for Go. It implements ISO/IEC 18004
 end to end — versions 1–40, all four error-correction levels, every data mode,
 automatic optimal segmentation, and the full eight-mask penalty search.
@@ -19,7 +23,8 @@ if err := q.WritePNG(w); err != nil {
 - **All versions and levels.** Versions 1–40, error correction L/M/Q/H, with
   automatic sizing (or an exact version forced by the caller).
 - **Every mode.** Numeric, alphanumeric, byte, and Kanji, plus ECI designators
-  (`WithECI(26)` selects UTF-8).
+  (`WithECI(26)` selects UTF-8). `NewKanjiString` converts UTF-8 to Shift-JIS
+  for you.
 - **Optimal segmentation.** An O(n) dynamic program splits the input across
   modes to minimise the encoded bit length, instead of encoding everything as
   bytes. It is verified against an O(n²) brute-force optimum in the test suite.
@@ -28,6 +33,8 @@ if err := q.WritePNG(w); err != nil {
   be forced with `WithMask`.
 - **ECL boosting.** When the data still fits, the encoder raises the
   error-correction level for extra robustness.
+- **Structured Append.** Messages larger than one symbol are split across up to
+  16 symbols with the standard sequence header and parity, via `Structured`.
 - **Renderers.** PNG (`image/png`), compact SVG, half-block terminal text, and a
   raw module-matrix API.
 - **No dependencies** beyond the standard library. Encoded `*QR` values are
@@ -36,7 +43,7 @@ if err := q.WritePNG(w); err != nil {
 ## Install
 
 ```sh
-go get qrcode
+go get github.com/dongm/qrcode
 ```
 
 Requires Go 1.24 or newer.
@@ -63,6 +70,7 @@ fmt.Println(q.Version(), q.Size(), q.Mask()) // 1 21 2
 | `WithBoostECL(bool)` | Raise the EC level when the data still fits (default `true`). |
 | `WithECI(designator)` | Emit an ECI designator, e.g. `26` for UTF-8. |
 | `WithSegments(...)` | Supply explicit pre-typed segments (see below). |
+| `WithStructuredAppend(index, total, parity)` | Mark the symbol as one part of a Structured Append sequence. |
 
 ### Building a QR from segments
 
@@ -78,8 +86,30 @@ q, err := qrcode.New(nil, qrcode.WithSegments(
 ```
 
 Constructors: `NewNumeric`, `NewAlphanumeric`, `NewBytes`, `NewText`,
-`NewKanji`. Numeric and alphanumeric segments are validated against their
-alphabets; Kanji segments must be Shift-JIS with an even length.
+`NewKanji`, and `NewKanjiString`. Numeric and alphanumeric segments are
+validated against their alphabets; `NewKanji` takes Shift-JIS with an even
+length, while `NewKanjiString` accepts UTF-8 and converts it for you.
+
+### Structured Append
+
+To encode a message larger than one symbol, let `Structured` split it across up
+to 16 symbols, adding the standard sequence header and parity:
+
+```go
+symbols, err := qrcode.StructuredString(message, qrcode.WithLevel(qrcode.Quartile))
+if err != nil {
+	log.Fatal(err)
+}
+for i, sym := range symbols {
+	if err := sym.WritePNG(w); err != nil { // render each part
+		log.Fatal(err)
+	}
+	_ = i
+}
+```
+
+All symbols share one version and level. `ErrTooManySymbols` is returned if the
+message needs more than 16 symbols at any version in range.
 
 ### Inspecting the symbol
 
@@ -115,31 +145,44 @@ fmt.Print(q.Terminal(qrcode.WithQuietZone(2)))    // half-block text
 ## Errors
 
 Encode failures return one of the sentinel errors `ErrTooLong`, `ErrBadVersion`,
-`ErrBadLevel`, `ErrBadMask`, `ErrInvalidSegment`, or `ErrEmptySegments` (match
-with `errors.Is`).
+`ErrBadLevel`, `ErrBadMask`, `ErrInvalidSegment`, `ErrEmptySegments`,
+`ErrStructuredAppend`, or `ErrTooManySymbols` (match with `errors.Is`).
 
 ## Testing and benchmarks
 
 ```sh
 go test ./...
+go test -race ./...
+go test -run '^$' -fuzz FuzzEncode
 go test -run '^$' -bench . -benchmem
 ```
 
-Selected results on a 12th-generation Intel Core i7 (Go 1.24, Windows):
+Verification is layered:
+
+- **Round-trip.** A decoder written independently from the specification
+  (function patterns, format information, mask conditions, de-interleaving, and
+  Reed-Solomon syndromes) reads every encoded symbol back, and the payload must
+  match the input. The fuzzer runs the same check on arbitrary data.
+- **Golden hashes.** SHA-256 hashes of representative matrices, produced by an
+  encoder cross-checked byte-for-byte against `rsc.io/qr` and
+  `boombuler/barcode`, lock the output against regressions.
+- **Planner.** The O(n) segmentation is compared against an O(n²) brute-force
+  optimum over thousands of random inputs.
+- **Penalty.** The optimised scorer is compared against a naive reading of the
+  four rules.
+
+Indicative timings on an Intel Core i7 (Go 1.24, Windows). Laptop timings vary
+widely between runs, so treat these as rough magnitudes:
 
 | Benchmark | ns/op |
 | --- | --- |
-| `EncodeForcedMask` (url, v4) | 6 388 |
-| `Encode/url` (v4, 8-mask search) | 111 479 |
-| `Encode/numeric` (v21) | 245 160 |
-| `Encode/alnum` (v13) | 625 339 |
-| `RenderTerminal` | 4 365 |
-| `RenderSVG` | 10 480 |
-| `RenderPNG` (scale 4) | 235 488 |
-
-The core encoder is validated against two independent implementations
-(`rsc.io/qr` and `boombuler/barcode`) across every mode and level, byte-for-byte
-at the matching mask.
+| `EncodeForcedMask` (url, v4) | ~8 µs |
+| `Encode/url` (v4, 8-mask search) | ~110 µs |
+| `Encode/numeric` (v21) | ~245 µs |
+| `Encode/alnum` (v13) | ~625 µs |
+| `RenderPNG` (scale 4) | ~300 µs |
+| `RenderSVG` | ~10 µs |
+| `RenderTerminal` | ~5 µs |
 
 ## License
 

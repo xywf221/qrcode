@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log"
 	"os"
+	"strings"
 
 	"github.com/dongm/qrcode"
 )
@@ -47,4 +48,15 @@ func ExampleQR_Terminal() {
 		log.Fatal(err)
 	}
 	fmt.Print(q.Terminal(qrcode.WithQuietZone(2)))
+}
+
+// ExampleStructured splits a large message across several symbols. All returned
+// symbols share one version.
+func ExampleStructured() {
+	symbols, err := qrcode.Structured([]byte(strings.Repeat("A", 500)), qrcode.WithLevel(qrcode.Low))
+	if err != nil {
+		log.Fatal(err)
+	}
+	fmt.Println(len(symbols) > 1, symbols[0].Version() == symbols[len(symbols)-1].Version())
+	// Output: true true
 }

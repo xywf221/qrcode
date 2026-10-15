@@ -56,8 +56,11 @@ Data transformations, in sequence:
    data and EC codewords.
 4. **Placement + masking.** `placeCodewords` (`matrix.go`) walks two-module
    columns right-to-left in an up/down zigzag, skipping `isFunc` modules.
-   `applyMask` has one specialised branch per mask, hoisted out of the x-loop
-   for speed; `selectMask` tries all eight and keeps the lowest `penalty()`.
+   `maskMatrix` holds the eight data-mask conditions (one branch each, hoisted
+   out of the x-loop for speed) and is their single definition; `applyMask`
+   applies one in place once the winner is known. `selectMask` scores all eight
+   through `penaltyMask`, which builds a masked *copy* into a reused scratch
+   buffer so the symbol matrix is never mutated while candidates are compared.
 
 ### Invariants that span files
 
@@ -65,12 +68,14 @@ Data transformations, in sequence:
   `structured.go`) is *not* a `segment`. Every place that compares required bits
   against `dataBits` must add `cfg.saBits()` — see `layout` and `build`
   (`qrcode.go`). Miss one and a symbol overflows undetected.
-- **The penalty scorer must match the reference.** `penalty()` (`mask.go`) is a
-  single fused pass; `penalty_test.go` asserts it equals `naivePenalty` on random
-  matrices. The rule-3 11-bit window is masked with `& 0x7ff` — an un-masked
-  window silently undercounts.
+- **The penalty scorer must match the reference.** `penalty()` / `penaltyOf()`
+  (`mask.go`) are a single fused pass over a module matrix; `penalty_test.go`
+  asserts they equal `naivePenalty` on random matrices, and the masked-copy
+  variant `penaltyMask` (used by `selectMask`) must agree with applying the mask
+  first. The rule-3 11-bit window is masked with `& 0x7ff` — an un-masked window
+  silently undercounts.
 - **Mask 4 is `(y/2 + x/3) % 2`.** All eight mask conditions are defined in
-  `applyMask` (`matrix.go`) and mirrored in the decoder's `maskCondition`.
+  `maskMatrix` (`matrix.go`) and mirrored in the decoder's `maskCondition`.
 - **Spec constants live in `tables.go`** (EC block counts, alignment positions,
   `numRawDataModules`, format/version BCH). These were transcribed from the spec
   and cross-checked against independent implementations; treat changes as

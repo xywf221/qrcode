@@ -8,6 +8,16 @@ type builder struct {
 	level   Level
 	modules []byte // row-major, 1 = dark
 	isFunc  []byte // 1 = function/reserved module
+
+	// Per-column scratch for penalty's fused scans, sized to the symbol and
+	// reused across the mask evaluations so only the first call allocates.
+	penRun  []int32
+	penPrev []byte
+	penWin  []uint
+
+	// Scratch holding the masked copy of the matrix that selectMask scores, so
+	// evaluating a candidate mask never has to modify the symbol in place.
+	maskScratch []byte
 }
 
 func newBuilder(ver int, level Level) *builder {
@@ -147,81 +157,115 @@ func (b *builder) placeCodewords(data []byte) {
 	}
 }
 
-// applyMask XORs the data mask over all non-function modules. It is its own
-// inverse, so calling it twice restores the original. The mask condition is
-// selected once per row rather than per module.
+// applyMask XORs the chosen data mask over the non-function modules of
+// b.modules, the final step once selectMask has picked a winner.
+func (b *builder) applyMask(mask int) {
+	maskMatrix(b.modules, b.modules, b.isFunc, b.size, mask)
+}
+
+// maskMatrix writes dst = src with the data mask applied to every non-function
+// module (function modules are copied through unchanged). Called with dst == src
+// it masks in place; called with a distinct dst it produces a masked copy, which
+// lets the penalty scorer evaluate a candidate mask without mutating the symbol.
+// The mask condition is selected once per row rather than per module.
 //
 //nolint:gocyclo // the eight data-mask formulas are enumerated inline for speed
-func (b *builder) applyMask(mask int) {
-	size := b.size
-	mods, funcs := b.modules, b.isFunc
+func maskMatrix(dst, src, funcs []byte, size, mask int) {
 	for y := 0; y < size; y++ {
 		base := y * size
-		row, fr := mods[base:base+size], funcs[base:base+size]
+		srcRow, fr, dstRow := src[base:base+size], funcs[base:base+size], dst[base:base+size]
 		switch mask {
 		case 0:
 			for x := 0; x < size; x++ {
+				v := srcRow[x]
 				if fr[x] == 0 && (x+y)&1 == 0 {
-					row[x] ^= 1
+					v ^= 1
 				}
+				dstRow[x] = v
 			}
 		case 1:
 			if y&1 == 0 {
 				for x := 0; x < size; x++ {
+					v := srcRow[x]
 					if fr[x] == 0 {
-						row[x] ^= 1
+						v ^= 1
 					}
+					dstRow[x] = v
 				}
+			} else {
+				copy(dstRow, srcRow)
 			}
 		case 2:
 			for x := 0; x < size; x++ {
+				v := srcRow[x]
 				if fr[x] == 0 && x%3 == 0 {
-					row[x] ^= 1
+					v ^= 1
 				}
+				dstRow[x] = v
 			}
 		case 3:
 			for x := 0; x < size; x++ {
+				v := srcRow[x]
 				if fr[x] == 0 && (x+y)%3 == 0 {
-					row[x] ^= 1
+					v ^= 1
 				}
+				dstRow[x] = v
 			}
 		case 4:
 			for x := 0; x < size; x++ {
+				v := srcRow[x]
 				if fr[x] == 0 && (y/2+x/3)&1 == 0 {
-					row[x] ^= 1
+					v ^= 1
 				}
+				dstRow[x] = v
 			}
 		case 5:
 			for x := 0; x < size; x++ {
+				v := srcRow[x]
 				if fr[x] == 0 && x*y%2+x*y%3 == 0 {
-					row[x] ^= 1
+					v ^= 1
 				}
+				dstRow[x] = v
 			}
 		case 6:
 			for x := 0; x < size; x++ {
+				v := srcRow[x]
 				if fr[x] == 0 && (x*y%2+x*y%3)&1 == 0 {
-					row[x] ^= 1
+					v ^= 1
 				}
+				dstRow[x] = v
 			}
 		default:
 			for x := 0; x < size; x++ {
+				v := srcRow[x]
 				if fr[x] == 0 && ((x+y)&1+x*y%3)&1 == 0 {
-					row[x] ^= 1
+					v ^= 1
 				}
+				dstRow[x] = v
 			}
 		}
 	}
 }
 
+// penaltyMask returns the penalty the symbol would score with data mask m
+// applied, without mutating the module matrix: the masked copy is built into a
+// reused scratch buffer and scored there.
+func (b *builder) penaltyMask(mask int) int {
+	total := b.size * b.size
+	if len(b.maskScratch) != total {
+		b.maskScratch = make([]byte, total)
+	}
+	maskMatrix(b.maskScratch, b.modules, b.isFunc, b.size, mask)
+	return b.penaltyOf(b.maskScratch)
+}
+
 func (b *builder) selectMask() int {
 	best, bestPen := 0, maxInt
 	for m := 0; m < 8; m++ {
-		b.applyMask(m)
 		b.drawFormatBits(m)
-		if p := b.penalty(); p < bestPen {
+		if p := b.penaltyMask(m); p < bestPen {
 			best, bestPen = m, p
 		}
-		b.applyMask(m)
 	}
 	return best
 }

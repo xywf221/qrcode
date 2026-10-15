@@ -15,20 +15,30 @@ const (
 	penaltyPatternB = 0b00001011101
 )
 
-// penalty returns the total mask penalty score; the encoder picks the mask with
-// the lowest score. It follows the ISO/IEC 18004 rules as implemented by ZXing:
-// rule 3 matches the literal 11-module patterns with the symbol border treated
-// as light.
-func (b *builder) penalty() int {
+// penalty returns the total mask penalty score of the symbol as currently
+// drawn; the encoder picks the mask with the lowest score.
+func (b *builder) penalty() int { return b.penaltyOf(b.modules) }
+
+// penaltyOf scores an arbitrary module matrix (row-major, 1 = dark) against the
+// four ISO/IEC 18004 rules, as implemented by ZXing: rule 3 matches the literal
+// 11-module patterns with the symbol border treated as light.
+func (b *builder) penaltyOf(mods []byte) int {
 	size := b.size
-	mods := b.modules
 	var res int
 
 	// Per-column state for the incremental column scans of rules 1 and 3, so a
-	// single suite of row-major passes covers every rule.
-	colRun := make([]int32, size)
-	colPrev := make([]byte, size)
-	colWin := make([]uint, size)
+	// single suite of row-major passes covers every rule. The scratch is reused
+	// across the eight mask evaluations, so only the first call allocates.
+	if len(b.penRun) != size {
+		b.penRun = make([]int32, size)
+		b.penPrev = make([]byte, size)
+		b.penWin = make([]uint, size)
+	} else {
+		clear(b.penRun)
+		clear(b.penPrev)
+		clear(b.penWin)
+	}
+	colRun, colPrev, colWin := b.penRun, b.penPrev, b.penWin
 
 	dark := 0
 	for y := 0; y < size; y++ {

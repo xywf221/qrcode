@@ -12,6 +12,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   zlib writer, an order of magnitude faster and far lighter on allocations than
   the standard `image/png` encoder (which rebuilds a ~1.3 MB flate compressor on
   every call).
+- Mask selection no longer writes each of the eight candidate masks into the
+  symbol matrix: the penalty search now scores a reused masked copy, roughly 9%
+  faster per encode, and the penalty pass sizes its scan scratch once instead of
+  on every candidate.
 
 ### Fixed
 

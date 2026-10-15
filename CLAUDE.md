@@ -96,5 +96,9 @@ fold it into the root module.
 
 - Renderers (`png.go`, `svg.go`, `ascii.go`) share `render.go`'s `renderConfig`
   and `RenderOption`s; add new render options there.
+- `png.go` hand-rolls the indexed-PNG document and deflates through a
+  `sync.Pool`ed `zlib.Writer` instead of `image/png`, whose per-call flate
+  compressor (~1.3 MB) dominates rendering cost. `TestPNGMatchesStdlib` pins our
+  output pixel-for-pixel to the standard-library encoder; keep it green.
 - New user-visible changes get a `CHANGELOG.md` entry under `[Unreleased]`.
 - Fuzz the encoder for any change to segmentation, placement, or masking.

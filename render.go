@@ -60,11 +60,13 @@ func newRenderConfig(opts []RenderOption) renderConfig {
 func (c renderConfig) extent(size int) int { return size + 2*c.quietZone }
 
 // darkAt reports whether the module at (x, y) in extended coordinates (quiet
-// zone included) is to be drawn in the foreground colour. Coordinates in the
-// quiet zone are light; WithInvert swaps the result.
+// zone included) is to be drawn in the foreground colour. The quiet zone is
+// always light; WithInvert swaps only the modules themselves.
 func (q *QR) darkAt(c renderConfig, x, y int) bool {
 	x -= c.quietZone
 	y -= c.quietZone
-	dark := uint(x) < uint(q.size) && uint(y) < uint(q.size) && q.modules[y*q.size+x] != 0
-	return dark != c.invert
+	if uint(x) >= uint(q.size) || uint(y) >= uint(q.size) {
+		return false
+	}
+	return (q.modules[y*q.size+x] != 0) != c.invert
 }

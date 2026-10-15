@@ -180,7 +180,7 @@ widely between runs, so treat these as rough magnitudes:
 | `Encode/url` (v4, 8-mask search) | ~110 µs |
 | `Encode/numeric` (v21) | ~245 µs |
 | `Encode/alnum` (v13) | ~625 µs |
-| `RenderPNG` (scale 4) | ~300 µs |
+| `RenderPNG` (scale 4) | ~13 µs |
 | `RenderSVG` | ~10 µs |
 | `RenderTerminal` | ~5 µs |
 

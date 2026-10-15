@@ -3,11 +3,100 @@ package qrcode
 import (
 	"bytes"
 	"encoding/xml"
+	"image"
 	"image/color"
 	"image/png"
 	"strings"
 	"testing"
 )
+
+// pngRefImage rasterises the symbol the way the reference (image/png) encoder
+// does: a two-entry palette, foreground modules set to index 1, the quiet zone
+// left as index 0. It is the independent oracle for TestPNGMatchesStdlib.
+func pngRefImage(q *QR, rc renderConfig) *image.Paletted {
+	n := rc.extent(q.size)
+	px := n * rc.scale
+	img := image.NewPaletted(image.Rect(0, 0, px, px), color.Palette{rc.background, rc.foreground})
+	for y := 0; y < q.size; y++ {
+		for x := 0; x < q.size; x++ {
+			if q.Module(x, y) == rc.invert {
+				continue
+			}
+			x0 := (x + rc.quietZone) * rc.scale
+			y0 := (y + rc.quietZone) * rc.scale
+			for dy := 0; dy < rc.scale; dy++ {
+				for dx := 0; dx < rc.scale; dx++ {
+					img.SetColorIndex(x0+dx, y0+dy, 1)
+				}
+			}
+		}
+	}
+	return img
+}
+
+// TestPNGMatchesStdlib checks the hand-rolled encoder produces, pixel for pixel,
+// the same image as the standard library for a range of options.
+func TestPNGMatchesStdlib(t *testing.T) {
+	q := mustEncode(t, "https://example.com/some/path?query=value&x=1")
+	red := color.RGBA{R: 0xff, A: 0xff}
+	for _, opts := range [][]RenderOption{
+		nil,
+		{WithScale(1), WithQuietZone(0)},
+		{WithScale(8), WithInvert(true)},
+		{WithColor(red, color.White), WithScale(2)},
+	} {
+		got, err := q.PNG(opts...)
+		if err != nil {
+			t.Fatal(err)
+		}
+		gi, err := png.Decode(bytes.NewReader(got))
+		if err != nil {
+			t.Fatalf("opts=%v: decode ours: %v", opts, err)
+		}
+		var ref bytes.Buffer
+		if err := png.Encode(&ref, pngRefImage(q, newRenderConfig(opts))); err != nil {
+			t.Fatal(err)
+		}
+		wi, err := png.Decode(&ref)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if gi.Bounds() != wi.Bounds() {
+			t.Fatalf("opts=%v: bounds %v vs %v", opts, gi.Bounds(), wi.Bounds())
+		}
+		b := gi.Bounds()
+		for y := b.Min.Y; y < b.Max.Y; y++ {
+			for x := b.Min.X; x < b.Max.X; x++ {
+				gr, gg, gb, _ := gi.At(x, y).RGBA()
+				wr, wg, wb, _ := wi.At(x, y).RGBA()
+				if gr != wr || gg != wg || gb != wb {
+					t.Fatalf("opts=%v: pixel (%d,%d) = %v, want %v", opts, x, y, gi.At(x, y), wi.At(x, y))
+				}
+			}
+		}
+	}
+}
+
+// TestQuietZoneNotInverted locks the rule shared by PNG, SVG and Terminal: the
+// quiet zone is always light, even when WithInvert swaps the modules.
+func TestQuietZoneNotInverted(t *testing.T) {
+	q := mustEncode(t, "hello")
+	const qz = 3
+	for _, inv := range []bool{false, true} {
+		rc := newRenderConfig([]RenderOption{WithQuietZone(qz), WithInvert(inv)})
+		n := rc.extent(q.size)
+		for y := 0; y < n; y++ {
+			for x := 0; x < n; x++ {
+				if x >= qz && x < qz+q.size && y >= qz && y < qz+q.size {
+					continue // module area
+				}
+				if q.darkAt(rc, x, y) {
+					t.Fatalf("invert=%v: quiet-zone cell (%d,%d) is foreground", inv, x, y)
+				}
+			}
+		}
+	}
+}
 
 func TestPNGRoundTrip(t *testing.T) {
 	q := mustEncode(t, "hello world", WithLevel(Quartile))

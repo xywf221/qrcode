@@ -6,6 +6,18 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ## [Unreleased]
 
+### Changed
+
+- PNG rendering now emits a hand-rolled indexed-PNG document through a pooled
+  zlib writer, an order of magnitude faster and far lighter on allocations than
+  the standard `image/png` encoder (which rebuilds a ~1.3 MB flate compressor on
+  every call).
+
+### Fixed
+
+- `WithInvert` no longer flips the quiet zone in SVG and terminal output; the
+  quiet zone is always light, matching the PNG renderer.
+
 ## [1.0.0] - 2026-10-15
 
 ### Added

@@ -2,51 +2,122 @@ package qrcode
 
 import (
 	"bytes"
-	"image"
+	"compress/zlib"
+	"encoding/binary"
+	"hash/crc32"
 	"image/color"
-	"image/png"
 	"io"
+	"sync"
 )
 
-// PNG encodes the symbol as a PNG image and returns the bytes. The image uses a
-// two-entry palette so it stays compact.
+var (
+	pngSignature = []byte{0x89, 'P', 'N', 'G', '\r', '\n', 0x1a, '\n'}
+
+	// A PNG is always compressed with zlib; pooling the writer keeps the flate
+	// compressor's buffers alive between renders instead of rebuilding (and
+	// re-allocating roughly 1.3 MB) on every call, which is what makes the
+	// standard image/png encoder slow for these tiny two-colour images.
+	zlibPool = sync.Pool{New: func() any {
+		zw, _ := zlib.NewWriterLevel(io.Discard, zlib.BestSpeed)
+		return zw
+	}}
+)
+
+// PNG encodes the symbol as a PNG image and returns the bytes. The image is a
+// two-colour indexed image at one bit per pixel, so it stays compact.
 func (q *QR) PNG(opts ...RenderOption) ([]byte, error) {
-	var buf bytes.Buffer
-	if err := q.WritePNG(&buf, opts...); err != nil {
-		return nil, err
-	}
-	return buf.Bytes(), nil
+	return q.pngBytes(newRenderConfig(opts)), nil
 }
 
 // WritePNG writes the symbol to w as a PNG image. By default each module is
-// rendered at 4 pixels with a 4-module quiet zone; use WithScale, WithQuietZone
-// and WithColor to change this.
+// rendered at 4 pixels with a 4-module quiet zone; use WithScale, WithQuietZone,
+// WithColor and WithInvert to change this.
 func (q *QR) WritePNG(w io.Writer, opts ...RenderOption) error {
-	img := q.renderImage(newRenderConfig(opts))
-	enc := png.Encoder{CompressionLevel: png.BestSpeed}
-	return enc.Encode(w, img)
+	_, err := w.Write(q.pngBytes(newRenderConfig(opts)))
+	return err
 }
 
-// renderImage rasterises the symbol into a two-colour paletted image.
-func (q *QR) renderImage(rc renderConfig) *image.Paletted {
+// pngBytes renders the symbol into a complete PNG document. It emits the four
+// minimal indexed-PNG chunks by hand and deflates the scanlines with a pooled
+// zlib writer.
+func (q *QR) pngBytes(rc renderConfig) []byte {
 	n := rc.extent(q.size)
 	px := n * rc.scale
-	img := image.NewPaletted(image.Rect(0, 0, px, px), color.Palette{rc.background, rc.foreground})
-	for y := 0; y < q.size; y++ {
-		for x := 0; x < q.size; x++ {
-			dark := q.modules[y*q.size+x] != 0
-			if dark == rc.invert {
+	bpr := (px + 7) / 8
+
+	out := make([]byte, 0, 512)
+	out = append(out, pngSignature...)
+
+	var ihdr [13]byte
+	binary.BigEndian.PutUint32(ihdr[0:], uint32(px))
+	binary.BigEndian.PutUint32(ihdr[4:], uint32(px))
+	ihdr[8] = 1 // bit depth
+	ihdr[9] = 3 // colour type: indexed
+	out = appendChunk(out, "IHDR", ihdr[:])
+
+	var plte [6]byte
+	putRGB(plte[0:3], rc.background)
+	putRGB(plte[3:6], rc.foreground)
+	out = appendChunk(out, "PLTE", plte[:])
+
+	// Each scanline is a filter byte (0, None) followed by bpr packed bits.
+	// Every module row is packed once and copied to its scale output rows, so
+	// the pixel work scales with the module count, not the pixel count.
+	raw := make([]byte, px*(1+bpr))
+	row := make([]byte, bpr)
+	for my := 0; my < q.size; my++ {
+		clear(row)
+		mrow := q.modules[my*q.size:]
+		for mx := 0; mx < q.size; mx++ {
+			if (mrow[mx] != 0) == rc.invert {
 				continue
 			}
-			x0 := (x + rc.quietZone) * rc.scale
-			y0 := (y + rc.quietZone) * rc.scale
-			for dy := 0; dy < rc.scale; dy++ {
-				row := img.Pix[(y0+dy)*img.Stride+x0:]
-				for dx := 0; dx < rc.scale; dx++ {
-					row[dx] = 1
-				}
+			base := (rc.quietZone + mx) * rc.scale
+			for k := 0; k < rc.scale; k++ {
+				bit := base + k
+				row[bit>>3] |= 0x80 >> uint(bit&7)
 			}
 		}
+		oy := (rc.quietZone + my) * rc.scale
+		for dy := 0; dy < rc.scale; dy++ {
+			off := (oy+dy)*(1+bpr) + 1
+			copy(raw[off:off+bpr], row)
+		}
 	}
-	return img
+	out = appendChunk(out, "IDAT", deflate(raw))
+	out = appendChunk(out, "IEND", nil)
+	return out
+}
+
+// appendChunk appends a PNG chunk: length, type, data, and the CRC-32 of the
+// type and data.
+func appendChunk(b []byte, typ string, data []byte) []byte {
+	var head [8]byte
+	binary.BigEndian.PutUint32(head[0:4], uint32(len(data)))
+	copy(head[4:8], typ)
+	b = append(b, head[:]...)
+	b = append(b, data...)
+	crc := crc32.Update(0, crc32.IEEETable, []byte(typ))
+	crc = crc32.Update(crc, crc32.IEEETable, data)
+	var tail [4]byte
+	binary.BigEndian.PutUint32(tail[:], crc)
+	return append(b, tail[:]...)
+}
+
+// deflate zlib-compresses raw using a pooled writer.
+func deflate(raw []byte) []byte {
+	var z bytes.Buffer
+	z.Grow(len(raw)/2 + 16)
+	zw := zlibPool.Get().(*zlib.Writer)
+	zw.Reset(&z)
+	_, _ = zw.Write(raw)
+	_ = zw.Close()
+	zw.Reset(io.Discard) // release the buffer before returning the writer
+	zlibPool.Put(zw)
+	return z.Bytes()
+}
+
+func putRGB(dst []byte, c color.Color) {
+	r, g, b, _ := c.RGBA()
+	dst[0], dst[1], dst[2] = uint8(r>>8), uint8(g>>8), uint8(b>>8)
 }

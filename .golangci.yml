@@ -1,0 +1,64 @@
+run:
+  timeout: 5m
+  tests: true
+
+linters:
+  disable-all: true
+  enable:
+    - errcheck
+    - govet
+    - ineffassign
+    - staticcheck
+    - unused
+    - misspell
+    - revive
+    - gocritic
+    - gocyclo
+    - unconvert
+    - unparam
+    - gosec
+    - errorlint
+    - prealloc
+    - nolintlint
+    - whitespace
+    - godot
+
+linters-settings:
+  gocyclo:
+    min-complexity: 30
+  revive:
+    rules:
+      - name: exported
+      - name: package-comments
+      - name: unused-parameter
+        disabled: true
+  gocritic:
+    enabled-tags:
+      - performance
+      - diagnostic
+    disabled-checks:
+      - hugeParam
+      - badCond # false positive on deliberate equal-neighbour comparisons
+  gosec:
+    excludes:
+      - G115 # integer-width conversions; all sites are range-proven, check is noisy
+  nolintlint:
+    require-explanation: true
+    require-specific: true
+    allow-unused: false
+
+issues:
+  max-issues-per-linter: 0
+  max-same-issues: 0
+  exclude-rules:
+    - path: _test\.go
+      linters:
+        - gocyclo
+        - gosec
+        - unparam
+        - errcheck
+        - dupl
+    - path: internal/sjisgen
+      linters:
+        - revive
+        - gosec

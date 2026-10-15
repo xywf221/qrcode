@@ -1,0 +1,21 @@
+# Build artifacts
+*.exe
+*.test
+*.out
+/qrcode
+
+# Coverage
+coverage.out
+coverage.html
+*.cover
+
+# Profiling
+cpu.out
+mem.out
+*.prof
+
+# Editor / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db

@@ -1,0 +1,13 @@
+# Normalize all text files to LF in the repository, regardless of platform.
+* text=auto eol=lf
+
+*.go text eol=lf
+*.mod text eol=lf
+*.sum text eol=lf
+*.md text eol=lf
+*.yml text eol=lf
+*.yaml text eol=lf
+
+# Binary artefacts
+*.png binary
+*.exe binary

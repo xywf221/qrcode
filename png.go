@@ -21,6 +21,10 @@ var (
 		zw, _ := zlib.NewWriterLevel(io.Discard, zlib.BestSpeed)
 		return zw
 	}}
+
+	// pngRawPool reuses the uncompressed scanline buffer, the largest per-render
+	// allocation (a few KB), across calls.
+	pngRawPool = sync.Pool{New: func() any { return new([]byte) }}
 )
 
 // PNG encodes the symbol as a PNG image and returns the bytes. The image is a
@@ -63,7 +67,14 @@ func (q *QR) pngBytes(rc renderConfig) []byte {
 	// Each scanline is a filter byte (0, None) followed by bpr packed bits.
 	// Every module row is packed once and copied to its scale output rows, so
 	// the pixel work scales with the module count, not the pixel count.
-	raw := make([]byte, px*(1+bpr))
+	rawp := pngRawPool.Get().(*[]byte)
+	raw := *rawp
+	if cap(raw) < px*(1+bpr) {
+		raw = make([]byte, px*(1+bpr))
+	} else {
+		raw = raw[:px*(1+bpr)]
+		clear(raw) // quiet-zone scanlines must stay zero
+	}
 	row := make([]byte, bpr)
 	for my := 0; my < q.size; my++ {
 		clear(row)
@@ -85,6 +96,8 @@ func (q *QR) pngBytes(rc renderConfig) []byte {
 		}
 	}
 	out = appendChunk(out, "IDAT", deflate(raw))
+	*rawp = raw
+	pngRawPool.Put(rawp)
 	out = appendChunk(out, "IEND", nil)
 	return out
 }

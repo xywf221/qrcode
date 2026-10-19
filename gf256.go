@@ -21,6 +21,12 @@ func init() {
 	for i := 255; i < 512; i++ {
 		gfExp[i] = gfExp[i-255]
 	}
+	// Precompute every generator polynomial once, up front: a lazily filled
+	// genCache would be written from concurrent encodes, which the package
+	// documents as safe.
+	for deg := 1; deg < len(genCache); deg++ {
+		genCache[deg] = buildGeneratorTerms(deg)
+	}
 }
 
 func gfMul(a, b byte) byte {
@@ -39,15 +45,18 @@ type genTerm struct {
 var genCache [31][]genTerm
 
 // generatorTerms returns the generator polynomial of degree deg as its non-zero
-// coefficients, cached. g(x) = (x - a^0)(x - a^1)...(x - a^(deg-1)); the leading
-// coefficient (always 1) is omitted.
+// coefficients. Built once in init, so this is a plain lookup.
 func generatorTerms(deg int) []genTerm {
 	if deg < 1 || deg > 30 {
 		panic("qrcode: invalid reed-solomon degree")
 	}
-	if genCache[deg] != nil {
-		return genCache[deg]
-	}
+	return genCache[deg]
+}
+
+// buildGeneratorTerms computes the generator polynomial of degree deg as its
+// non-zero coefficients. g(x) = (x - a^0)(x - a^1)...(x - a^(deg-1)); the
+// leading coefficient (always 1) is omitted.
+func buildGeneratorTerms(deg int) []genTerm {
 	// Build polynomial coefficients, highest degree first, including leading 1.
 	// Each step multiplies by (x + a^i), represented as p*x + p*a^i.
 	poly := []byte{1}
@@ -71,7 +80,6 @@ func generatorTerms(deg int) []genTerm {
 			terms = append(terms, genTerm{idx: i - 1, log: gfLog[poly[i]]})
 		}
 	}
-	genCache[deg] = terms
 	return terms
 }
 

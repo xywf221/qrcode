@@ -3,6 +3,7 @@ package qrcode
 import (
 	"errors"
 	"strings"
+	"sync"
 	"testing"
 )
 
@@ -148,15 +149,40 @@ func TestErrors(t *testing.T) {
 		{"bad level", []byte("x"), []Option{WithLevel(Level(9))}, ErrBadLevel},
 		{"bad mask", []byte("x"), []Option{WithMask(8)}, ErrBadMask},
 		{"bad version", []byte("x"), []Option{WithVersion(41)}, ErrBadVersion},
+		{"bad eci high", []byte("x"), []Option{WithECI(1000000)}, ErrBadECI},
+		{"bad eci low", []byte("x"), []Option{WithECI(-2)}, ErrBadECI},
 		{"empty segments", []byte("x"), []Option{WithSegments()}, ErrEmptySegments},
 		{"invalid numeric", []byte("x"), []Option{WithSegments(NewNumeric("12a"))}, ErrInvalidSegment},
 		{"invalid alnum", []byte("x"), []Option{WithSegments(NewAlphanumeric("ab"))}, ErrInvalidSegment},
+		{"kanji odd length", []byte("x"), []Option{WithSegments(NewKanji([]byte{0x93}))}, ErrInvalidSegment},
+		{"kanji out of range", []byte("x"), []Option{WithSegments(NewKanji([]byte{0xEE, 0xEF}))}, ErrInvalidSegment},
+		{"kanji non-reversible low byte", []byte("x"), []Option{WithSegments(NewKanji([]byte{0x93, 0x30}))}, ErrInvalidSegment},
 	}
 	for _, tc := range cases {
 		if _, err := New(tc.data, tc.opts...); !errors.Is(err, tc.want) {
 			t.Errorf("%s: err = %v, want %v", tc.name, err, tc.want)
 		}
 	}
+}
+
+// TestConcurrentEncode exercises the documented concurrency guarantee; the race
+// detector is the real check (it previously fired on the lazily built
+// Reed-Solomon generator cache).
+func TestConcurrentEncode(t *testing.T) {
+	var wg sync.WaitGroup
+	for i := 0; i < 8; i++ {
+		wg.Add(1)
+		go func(n int) {
+			defer wg.Done()
+			for j := 0; j < 40; j++ {
+				if _, err := NewString("https://example.com/path?q="+strings.Repeat("x", n), WithLevel(Quartile)); err != nil {
+					t.Errorf("encode: %v", err)
+					return
+				}
+			}
+		}(i)
+	}
+	wg.Wait()
 }
 
 func TestBitmapAliases(t *testing.T) {

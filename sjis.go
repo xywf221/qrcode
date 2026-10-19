@@ -7,7 +7,8 @@ import "sort"
 
 // toShiftJIS converts every rune of s to its two-byte Shift-JIS form, reporting
 // false if any rune is not a JIS X 0208 double-byte character. Kanji mode
-// encodes only such pairs, so single-byte (ASCII) runes are rejected too.
+// encodes only such pairs, so single-byte (ASCII) runes and the non-JIS X 0208
+// table entries (which are not representable in Kanji mode) are rejected.
 func toShiftJIS(s string) ([]byte, bool) {
 	out := make([]byte, 0, 2*len(s))
 	for _, r := range s {
@@ -18,6 +19,9 @@ func toShiftJIS(s string) ([]byte, bool) {
 			return nil, false
 		}
 		c := uint16(sjisTable[i])
+		if !validKanjiCode(c) {
+			return nil, false
+		}
 		out = append(out, byte(c>>8), byte(c))
 	}
 	return out, true

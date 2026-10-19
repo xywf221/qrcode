@@ -59,8 +59,31 @@ func validateSegment(s segment) error {
 		if len(s.data)%2 != 0 {
 			return ErrInvalidSegment
 		}
+		for i := 0; i+1 < len(s.data); i += 2 {
+			if !validKanjiCode(uint16(s.data[i])<<8 | uint16(s.data[i+1])) {
+				return ErrInvalidSegment
+			}
+		}
 	}
 	return nil
+}
+
+// validKanjiCode reports whether a two-byte Shift-JIS value is representable in
+// QR Kanji mode: the JIS X 0208 ranges 0x8140–0x9FFC and 0xE040–0xEBBF whose low
+// byte is at least 0x40. Codes outside those ranges — such as the JIS X 0212 and
+// vendor extensions in 0xED40–0xEEFC that the Shift-JIS table also contains —
+// have no 13-bit Kanji representation.
+//
+// The low-byte test is the subtle part. Kanji mode stores (high*0xC0 + low) of
+// the value left after subtracting the range base (0x8140 or 0xC140). That only
+// inverts when the remainder's low byte is below 0xC0, i.e. the code's low byte
+// is at least 0x40. A code such as 0x9330 passes the range test but decodes back
+// as 0x9370, so it must be rejected rather than silently corrupted.
+func validKanjiCode(c uint16) bool {
+	if c&0xFF < 0x40 {
+		return false
+	}
+	return (c >= 0x8140 && c <= 0x9FFC) || (c >= 0xE040 && c <= 0xEBBF)
 }
 
 func eciValueBits(d int) int {
@@ -165,6 +188,9 @@ func writeAlnum(bb *bitBuffer, d []byte) {
 	}
 }
 
+// writeKanji emits the Shift-JIS pairs in d as 13-bit Kanji values. Callers must
+// have validated d with validateSegment, which guarantees every pair falls in one
+// of the two representable ranges.
 func writeKanji(bb *bitBuffer, d []byte) {
 	for i := 0; i+1 < len(d); i += 2 {
 		v := int(d[i])<<8 | int(d[i+1])

@@ -12,6 +12,8 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   zlib writer, an order of magnitude faster and far lighter on allocations than
   the standard `image/png` encoder (which rebuilds a ~1.3 MB flate compressor on
   every call).
+- PNG rendering reuses its uncompressed scanline buffer through a pool, cutting
+  the render path's allocations.
 - Mask selection no longer writes each of the eight candidate masks into the
   symbol matrix: the penalty search now scores a reused masked copy, roughly 9%
   faster per encode, and the penalty pass sizes its scan scratch once instead of
@@ -19,6 +21,15 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- Kanji segments now reject Shift-JIS pairs whose low byte is below `0x40`
+  (e.g. `0x9330`). Such codes pass the JIS X 0208 range test but are not
+  reversible through the 13-bit Kanji encoding and previously decoded back as a
+  different value; `NewKanji` and `NewKanjiString` now report
+  `ErrInvalidSegment` instead.
+- `WithECI` rejects designators outside `[0, 999999]` with `ErrBadECI` rather
+  than emitting a malformed designator.
+- The Reed-Solomon generator polynomials are built during package init, removing
+  a data race that could occur when encoding from multiple goroutines.
 - `WithInvert` no longer flips the quiet zone in SVG and terminal output; the
   quiet zone is always light, matching the PNG renderer.
 

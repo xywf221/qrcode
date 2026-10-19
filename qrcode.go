@@ -97,6 +97,7 @@ var (
 	ErrBadVersion     = errors.New("qrcode: version out of range [1,40]")
 	ErrBadLevel       = errors.New("qrcode: invalid error-correction level")
 	ErrBadMask        = errors.New("qrcode: mask out of range [0,7]")
+	ErrBadECI         = errors.New("qrcode: ECI designator out of range [0,999999]")
 	ErrInvalidSegment = errors.New("qrcode: segment data is not valid for its mode")
 	ErrEmptySegments  = errors.New("qrcode: explicit segments must not be empty")
 
@@ -206,6 +207,9 @@ func (c *config) normalizeAndValidate() error {
 	if c.mask > 7 {
 		return ErrBadMask
 	}
+	if c.eci < -1 || c.eci > 999999 {
+		return ErrBadECI
+	}
 	return nil
 }
 
@@ -234,7 +238,8 @@ func WithMask(m int) Option { return func(c *config) { c.mask = m } }
 func WithBoostECL(b bool) Option { return func(c *config) { c.boostECL = b } }
 
 // WithECI selects an Extended Channel Interpretation designator, e.g. 26 for
-// UTF-8. Default is none.
+// UTF-8. The designator must be in [0, 999999]; an out-of-range value makes New
+// return ErrBadECI. Default is none.
 func WithECI(designator int) Option { return func(c *config) { c.eci = designator } }
 
 // WithSegments supplies explicit segments, bypassing automatic segmentation.

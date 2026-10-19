@@ -1,8 +1,10 @@
 package qrcode
 
 import (
+	"bytes"
 	"crypto/sha256"
 	"fmt"
+	"strings"
 	"testing"
 )
 
@@ -56,6 +58,94 @@ func TestGolden(t *testing.T) {
 		}
 		if got := fmt.Sprintf("%x", sha256.Sum256(q.Bitmap())); got != g.hash {
 			t.Errorf("%q %v: module hash = %s, want %s", g.text, g.level, got, g.hash)
+		}
+	}
+}
+
+// goldenExtCase exercises paths the table above does not: versions above the
+// 1-7 range, Kanji and ECI segments, Structured Append, and a forced mask. Each
+// case is also decoded through the test decoder, so the hash lock is backed by
+// an independent round-trip rather than being a pure output snapshot.
+type goldenExtCase struct {
+	name    string
+	build   func() (*QR, error)
+	version int
+	mask    int
+	hash    string
+	payload []byte // expected decoded payload, nil to skip
+	eci     int    // expected ECI designator, -1 for none
+	wantSA  bool
+}
+
+func TestGoldenExtended(t *testing.T) {
+	kanjiSJIS := []byte{0x93, 0x5F, 0x8E, 0x9A, 0x93, 0x5F} // 点字点
+	structMsg := strings.Repeat("The quick brown fox jumps over the lazy dog. ", 20)
+	cases := []goldenExtCase{
+		{"long-url-byte", func() (*QR, error) {
+			return NewString(strings.Repeat("https://example.com/a/b?x=y&z=1 ", 15), WithLevel(Quartile), WithBoostECL(false))
+		}, 20, 2, "93df393490efa5d9f4df5d645ab071d51ffec1171ec42c95fb88ea12ea98abfa",
+			[]byte(strings.Repeat("https://example.com/a/b?x=y&z=1 ", 15)), -1, false},
+		{"long-numeric", func() (*QR, error) {
+			return NewString(strings.Repeat("1234567890", 200), WithLevel(Low), WithBoostECL(false))
+		}, 20, 3, "b0740f5726af1e2cd777fb73fb5fec2aac4f182f1019eb5c3b8d2356fa149126",
+			[]byte(strings.Repeat("1234567890", 200)), -1, false},
+		{"kanji", func() (*QR, error) {
+			return NewString("", WithSegments(NewKanji(kanjiSJIS)), WithLevel(Medium), WithBoostECL(false))
+		}, 1, 4, "81d8f0a9bedfffc280f93570becdf4e89bba907c22cb93a3992380dcb1d67819",
+			kanjiSJIS, -1, false},
+		{"eci-utf8", func() (*QR, error) {
+			return NewString("café-münchen", WithECI(26), WithLevel(Quartile), WithBoostECL(false))
+		}, 2, 2, "a502e7d40f81b3d854a8f844e2d754e7cf7ad6166226352992dca1933b560a4e",
+			[]byte("café-münchen"), 26, false},
+		{"structured-0", func() (*QR, error) {
+			qs, err := StructuredString(structMsg, WithLevel(Quartile))
+			if err != nil {
+				return nil, err
+			}
+			return qs[0], nil
+		}, 5, 7, "1dc442d7f8dc2270d9b692b889a2f712bb4fc1904986a4b927a868ef2c552526",
+			nil, -1, true},
+		{"forced-mask-6", func() (*QR, error) {
+			return NewString("golden extended mask", WithMask(6), WithBoostECL(false))
+		}, 2, 6, "14d9549b9b6bbe97cee4e87478447c3b502d08df4ec5fd69ebf49734336d48da",
+			[]byte("golden extended mask"), -1, false},
+		{"v39-high", func() (*QR, error) {
+			return NewString(strings.Repeat("z", 1200), WithLevel(High), WithBoostECL(false))
+		}, 39, 1, "57e69638c60bb6bd9da00447bfe28c127ea7d6b887fa88367bc5adbb655688af",
+			[]byte(strings.Repeat("z", 1200)), -1, false},
+	}
+	for _, g := range cases {
+		q, err := g.build()
+		if err != nil {
+			t.Fatalf("%s: %v", g.name, err)
+		}
+		if q.Version() != g.version {
+			t.Errorf("%s: version = %d, want %d", g.name, q.Version(), g.version)
+		}
+		if q.Mask() != g.mask {
+			t.Errorf("%s: mask = %d, want %d", g.name, q.Mask(), g.mask)
+		}
+		if got := fmt.Sprintf("%x", sha256.Sum256(q.Bitmap())); got != g.hash {
+			t.Errorf("%s: module hash = %s, want %s", g.name, got, g.hash)
+		}
+
+		d, err := decodeSymbol(q)
+		if err != nil {
+			t.Fatalf("%s: decode: %v", g.name, err)
+		}
+		if g.payload != nil && !bytes.Equal(d.payload, g.payload) {
+			t.Errorf("%s: payload = %q, want %q", g.name, d.payload, g.payload)
+		}
+		if d.eci != g.eci {
+			t.Errorf("%s: eci = %d, want %d", g.name, d.eci, g.eci)
+		}
+		if got := d.sa != nil; got != g.wantSA {
+			t.Errorf("%s: structured-append header present = %v, want %v", g.name, got, g.wantSA)
+		}
+		if g.wantSA {
+			if d.sa.index != 0 || !bytes.HasPrefix([]byte(structMsg), d.payload) {
+				t.Errorf("%s: sa = %+v payload prefix mismatch", g.name, d.sa)
+			}
 		}
 	}
 }

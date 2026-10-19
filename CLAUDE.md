@@ -19,8 +19,10 @@ go test ./...                      # full suite
 go test -race ./...                # race detector
 go test -run TestName ./...        # a single test
 go test -run '^$' -bench . -benchmem
-go test -run '^$' -fuzz FuzzEncode -fuzztime 30s .   # fuzz (encode + decode round-trip)
+go test -run '^$' -fuzz FuzzEncode -fuzztime 30s .   # fuzz (byte encode + decode round-trip)
 go test -run '^$' -fuzz FuzzPenalty -fuzztime 15s .  # fuzz (penalty vs naive)
+# fuzz_test.go also has FuzzExplicitSegments, FuzzECI, FuzzKanjiString,
+# FuzzStructured and FuzzMask; each does an encode/decode round-trip.
 golangci-lint run                  # config: .golangci.yml; must stay at 0 issues
 gofmt -l .                         # CI fails on unformatted code
 ```
@@ -79,7 +81,15 @@ Data transformations, in sequence:
 - **Spec constants live in `tables.go`** (EC block counts, alignment positions,
   `numRawDataModules`, format/version BCH). These were transcribed from the spec
   and cross-checked against independent implementations; treat changes as
-  high-risk and back them with the golden tests.
+  high-risk and back them with the golden tests. `tables_oracle_test.go` pins
+  them to hard-coded spec tables, so a transcription slip is caught independently
+  of the encoder.
+- **Kanji codes must be reversible.** `validKanjiCode` (`segment.go`) requires
+  both the JIS X 0208 range *and* a low byte of at least `0x40`: the 13-bit
+  encoding is `high*0xC0 + low` of the value after subtracting the range base,
+  which only inverts when that low byte is below `0xC0`. A code like `0x9330`
+  passes the range test but decodes back as `0x9370`, so both `NewKanji` and the
+  Shift-JIS converter (`sjis.go`) reject it rather than corrupting the data.
 
 ### Verification model (keep it intact)
 
@@ -89,6 +99,10 @@ Reed-Solomon syndromes from the spec independently of the encoder. The round-tri
 (`TestDecodeRoundtrip`, `FuzzEncode`) is the primary proof that symbols are
 correct. `golden_test.go` locks output matrices with SHA-256 hashes; there is no
 auto-generator — if output legitimately changes, update the hashes deliberately.
+`TestGoldenExtended` additionally locks high versions (>9), Kanji, ECI, Structured
+Append and a forced mask, and decodes each case round-trip so the hash is backed
+by independent verification. `tables_oracle_test.go` pins the spec tables to
+hard-coded values.
 
 ### Dependency isolation
 

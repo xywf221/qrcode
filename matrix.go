@@ -18,6 +18,10 @@ type builder struct {
 	// Scratch holding the masked copy of the matrix that selectMask scores, so
 	// evaluating a candidate mask never has to modify the symbol in place.
 	maskScratch []byte
+
+	// Packed rows and columns for the bit-parallel scorer, sized to the symbol.
+	bitRows []uint64
+	bitCols []uint64
 }
 
 func newBuilder(ver int, level Level) *builder {
@@ -259,7 +263,18 @@ func (b *builder) penaltyMask(mask int) int {
 	return b.penaltyOf(b.maskScratch)
 }
 
+// selectMask scores all eight candidates and returns the lowest-penalty mask.
+// Versions 3-11 fit a row in a uint64 and use the bit-parallel scorer; versions
+// 1-2 are too small for its packing overhead to pay off, and larger symbols need
+// the scalar scorer.
 func (b *builder) selectMask() int {
+	if b.size >= 29 && b.size <= 64 {
+		return b.selectMask64()
+	}
+	return b.selectMaskScalar()
+}
+
+func (b *builder) selectMaskScalar() int {
 	best, bestPen := 0, maxInt
 	for m := 0; m < 8; m++ {
 		b.drawFormatBits(m)

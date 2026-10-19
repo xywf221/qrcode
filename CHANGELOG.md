@@ -18,6 +18,10 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
   symbol matrix: the penalty search now scores a reused masked copy, roughly 9%
   faster per encode, and the penalty pass sizes its scan scratch once instead of
   on every candidate.
+- Versions 3–11 now select their mask with a bit-parallel scorer that packs every
+  row and column into a `uint64`, making mask selection 1.4–3.9× faster at those
+  sizes. Versions 1–2 and versions 12–40 keep the scalar scorer, which is faster
+  on symbols too small or too wide for the packing to pay off.
 
 ### Fixed
 

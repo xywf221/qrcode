@@ -63,6 +63,8 @@ Data transformations, in sequence:
    applies one in place once the winner is known. `selectMask` scores all eight
    through `penaltyMask`, which builds a masked *copy* into a reused scratch
    buffer so the symbol matrix is never mutated while candidates are compared.
+   Versions 3–11 (rows fit in a `uint64`) use the bit-parallel scorer in
+   `mask64.go` instead; versions 1–2 and versions 12–40 use the scalar scorer.
 
 ### Invariants that span files
 
@@ -74,8 +76,10 @@ Data transformations, in sequence:
   (`mask.go`) are a single fused pass over a module matrix; `penalty_test.go`
   asserts they equal `naivePenalty` on random matrices, and the masked-copy
   variant `penaltyMask` (used by `selectMask`) must agree with applying the mask
-  first. The rule-3 11-bit window is masked with `& 0x7ff` — an un-masked window
-  silently undercounts.
+  first. The bit-parallel `penaltyMask64` (`mask64.go`) must agree with
+  `penaltyMask` on every candidate, which `mask64_test.go` pins. The rule-3
+  11-bit window is masked with `& 0x7ff` — an un-masked window silently
+  undercounts.
 - **Mask 4 is `(y/2 + x/3) % 2`.** All eight mask conditions are defined in
   `maskMatrix` (`matrix.go`) and mirrored in the decoder's `maskCondition`.
 - **Spec constants live in `tables.go`** (EC block counts, alignment positions,

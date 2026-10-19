@@ -178,6 +178,12 @@ func layout(data []byte, cfg *config) ([]segment, int, error) {
 		return nil, 0, ErrTooLong
 	}
 
+	// No single symbol can hold more than 7089 characters (version 40-L,
+	// numeric mode), so reject longer input before the segmentation DP runs.
+	if len(data) > 7089 {
+		return nil, 0, ErrTooLong
+	}
+
 	var plans [3][]segment
 	var planned [3]bool
 	for v := cfg.minVersion; v <= cfg.maxVersion; v++ {

@@ -171,6 +171,50 @@ func TestDataCodewordsOracle(t *testing.T) {
 	}
 }
 
+// oracleECCPerBlock, oracleNumBlocks and oracleDataCodewords are the full
+// block tables (ISO/IEC 18004 Table 9), extracted from boombuler/barcode's
+// versioninfo.go, an implementation independent of this one. Together they pin
+// every (version, level) entry: a paired transcription slip that keeps the
+// accounting invariant would still be caught here.
+var (
+	oracleECCPerBlock = [4][41]int{
+		{0, 7, 10, 15, 20, 26, 18, 20, 24, 30, 18, 20, 24, 26, 30, 22, 24, 28, 30, 28, 28, 28, 28, 30, 30, 26, 28, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30},
+		{0, 10, 16, 26, 18, 24, 16, 18, 22, 22, 26, 30, 22, 22, 24, 24, 28, 28, 26, 26, 26, 26, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28, 28},
+		{0, 13, 22, 18, 26, 18, 24, 18, 22, 20, 24, 28, 26, 24, 20, 30, 24, 28, 28, 26, 30, 28, 30, 30, 30, 30, 28, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30},
+		{0, 17, 28, 22, 16, 22, 28, 26, 26, 24, 28, 24, 28, 22, 24, 24, 30, 28, 28, 26, 28, 30, 24, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30, 30},
+	}
+	oracleNumBlocks = [4][41]int{
+		{0, 1, 1, 1, 1, 1, 2, 2, 2, 2, 4, 4, 4, 4, 4, 6, 6, 6, 6, 7, 8, 8, 9, 9, 10, 12, 12, 12, 13, 14, 15, 16, 17, 18, 19, 19, 20, 21, 22, 24, 25},
+		{0, 1, 1, 1, 2, 2, 4, 4, 4, 5, 5, 5, 8, 9, 9, 10, 10, 11, 13, 14, 16, 17, 17, 18, 20, 21, 23, 25, 26, 28, 29, 31, 33, 35, 37, 38, 40, 43, 45, 47, 49},
+		{0, 1, 1, 2, 2, 4, 4, 6, 6, 8, 8, 8, 10, 12, 16, 12, 17, 16, 18, 21, 20, 23, 23, 25, 27, 29, 34, 34, 35, 38, 40, 43, 45, 48, 51, 53, 56, 59, 62, 65, 68},
+		{0, 1, 1, 2, 4, 4, 4, 5, 6, 8, 8, 11, 11, 16, 16, 18, 16, 19, 21, 25, 25, 25, 34, 30, 32, 35, 37, 40, 42, 45, 48, 51, 54, 57, 60, 63, 66, 70, 74, 77, 81},
+	}
+	oracleDataCodewords = [4][41]int{
+		{0, 19, 34, 55, 80, 108, 136, 156, 194, 232, 274, 324, 370, 428, 461, 523, 589, 647, 721, 795, 861, 932, 1006, 1094, 1174, 1276, 1370, 1468, 1531, 1631, 1735, 1843, 1955, 2071, 2191, 2306, 2434, 2566, 2702, 2812, 2956},
+		{0, 16, 28, 44, 64, 86, 108, 124, 154, 182, 216, 254, 290, 334, 365, 415, 453, 507, 563, 627, 669, 714, 782, 860, 914, 1000, 1062, 1128, 1193, 1267, 1373, 1455, 1541, 1631, 1725, 1812, 1914, 1992, 2102, 2216, 2334},
+		{0, 13, 22, 34, 48, 62, 76, 88, 110, 132, 154, 180, 206, 244, 261, 295, 325, 367, 397, 445, 485, 512, 568, 614, 664, 718, 754, 808, 871, 911, 985, 1033, 1115, 1171, 1231, 1286, 1354, 1426, 1502, 1582, 1666},
+		{0, 9, 16, 26, 36, 46, 60, 66, 86, 100, 122, 140, 158, 180, 197, 223, 253, 283, 313, 341, 385, 406, 442, 464, 514, 538, 596, 628, 661, 701, 745, 793, 845, 901, 961, 986, 1054, 1096, 1142, 1222, 1276},
+	}
+)
+
+// TestBlockTablesOracle pins every block-table entry for all 40 versions and
+// four levels.
+func TestBlockTablesOracle(t *testing.T) {
+	for v := 1; v <= 40; v++ {
+		for l := Low; l <= High; l++ {
+			if got, want := eccPerBlock[l][v], oracleECCPerBlock[l][v]; got != want {
+				t.Errorf("eccPerBlock[%v][%d] = %d, want %d", l, v, got, want)
+			}
+			if got, want := numBlocks[l][v], oracleNumBlocks[l][v]; got != want {
+				t.Errorf("numBlocks[%v][%d] = %d, want %d", l, v, got, want)
+			}
+			if got, want := dataCodewords(v, l), oracleDataCodewords[l][v]; got != want {
+				t.Errorf("dataCodewords(%d, %v) = %d, want %d", v, l, got, want)
+			}
+		}
+	}
+}
+
 // TestBlockAccountingInvariant verifies that for every version and level the
 // data codewords plus the error-correction codewords account for exactly the
 // total codewords. A typo in eccPerBlock or numBlocks breaks this unless the
@@ -211,6 +255,69 @@ func TestECCBlockKnownValues(t *testing.T) {
 		}
 		if got := eccPerBlock[tc.lvl][tc.ver]; got != tc.ecPerBlk {
 			t.Errorf("eccPerBlock[%v][%d] = %d, want %d", tc.lvl, tc.ver, got, tc.ecPerBlk)
+		}
+	}
+}
+
+// TestAlnumAlphabetOracle pins the 45-character alphanumeric alphabet and its
+// value mapping to a literal transcribed from ISO/IEC 18004. Both the encoder
+// and the test decoder read alnumChars, so a typo there would otherwise encode
+// and decode the same wrong character and pass every round-trip.
+func TestAlnumAlphabetOracle(t *testing.T) {
+	const want = "0123456789ABCDEFGHIJKLMNOPQRSTUVWXYZ $%*+-./:"
+	if alnumChars != want {
+		t.Fatalf("alnumChars = %q, want %q", alnumChars, want)
+	}
+	for i := 0; i < len(want); i++ {
+		if got := alnumValue[want[i]]; int(got) != i {
+			t.Errorf("alnumValue[%q] = %d, want %d", want[i], got, i)
+		}
+	}
+	if alnumValue['a'] >= 0 || alnumValue['#'] >= 0 {
+		t.Error("non-alphanumeric characters have a value")
+	}
+}
+
+// TestGF256Oracle pins the GF(2^8) exponential and logarithm tables to values
+// derived from the primitive polynomial x^8+x^4+x^3+x^2+1 (0x11D). The encoder
+// and the test decoder's syndrome check share these tables, so a wrong
+// primitive polynomial would otherwise stay self-consistent.
+func TestGF256Oracle(t *testing.T) {
+	// 2^i for i = 0..15, computed by hand from repeated doubling mod 0x11D.
+	wantExp := []byte{1, 2, 4, 8, 16, 32, 64, 128, 29, 58, 116, 232, 205, 135, 19, 38}
+	for i, want := range wantExp {
+		if gfExp[i] != want {
+			t.Errorf("gfExp[%d] = %d, want %d", i, gfExp[i], want)
+		}
+		if gfLog[want] != byte(i) {
+			t.Errorf("gfLog[%d] = %d, want %d", want, gfLog[want], i)
+		}
+	}
+	if gfExp[255] != 1 {
+		t.Errorf("gfExp[255] = %d, want 1", gfExp[255])
+	}
+	// Multiplicative inverse: 3 * 244 = 1 in this field.
+	if got := gfMul(3, 244); got != 1 {
+		t.Errorf("gfMul(3, 244) = %d, want 1", got)
+	}
+	if gfMul(0, 123) != 0 || gfMul(123, 0) != 0 {
+		t.Error("multiplication by zero is not zero")
+	}
+}
+
+// TestRSKnownAnswer checks rsEncode against the worked example in ISO/IEC 18004
+// Annex I (level M, version 1-M data codewords) and the published 10-codeword
+// error-correction block.
+func TestRSKnownAnswer(t *testing.T) {
+	data := []byte{16, 32, 12, 86, 97, 128, 236, 17, 236, 17, 236, 17, 236, 17, 236, 17}
+	want := []byte{165, 36, 212, 193, 237, 54, 199, 135, 44, 85}
+	got := rsEncode(data, 10)
+	if len(got) != len(want) {
+		t.Fatalf("rsEncode returned %d codewords, want %d", len(got), len(want))
+	}
+	for i := range want {
+		if got[i] != want[i] {
+			t.Fatalf("rsEncode = %v, want %v", got, want)
 		}
 	}
 }

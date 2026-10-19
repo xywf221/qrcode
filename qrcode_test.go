@@ -123,6 +123,15 @@ func TestLevelBoost(t *testing.T) {
 	}
 }
 
+func TestStructuredRejectsUnsupportedOptions(t *testing.T) {
+	if _, err := Structured([]byte("x"), WithSegments(NewNumeric("1"))); !errors.Is(err, ErrStructuredOption) {
+		t.Errorf("segments: err = %v, want ErrStructuredOption", err)
+	}
+	if _, err := Structured([]byte("x"), WithStructuredAppend(0, 1, 0)); !errors.Is(err, ErrStructuredOption) {
+		t.Errorf("header: err = %v, want ErrStructuredOption", err)
+	}
+}
+
 func TestExplicitSegments(t *testing.T) {
 	q := mustEncode(t, "", WithSegments(NewNumeric("12345"), NewText("abc")))
 	if q.Version() < 1 {
@@ -148,7 +157,10 @@ func TestErrors(t *testing.T) {
 		{"too long", []byte(strings.Repeat("x", 8000)), []Option{WithVersion(1)}, ErrTooLong},
 		{"bad level", []byte("x"), []Option{WithLevel(Level(9))}, ErrBadLevel},
 		{"bad mask", []byte("x"), []Option{WithMask(8)}, ErrBadMask},
+		{"bad mask low", []byte("x"), []Option{WithMask(-2)}, ErrBadMask},
 		{"bad version", []byte("x"), []Option{WithVersion(41)}, ErrBadVersion},
+		{"min version low", []byte("x"), []Option{WithMinVersion(0)}, ErrBadVersion},
+		{"max version high", []byte("x"), []Option{WithMaxVersion(41)}, ErrBadVersion},
 		{"bad eci high", []byte("x"), []Option{WithECI(1000000)}, ErrBadECI},
 		{"bad eci low", []byte("x"), []Option{WithECI(-2)}, ErrBadECI},
 		{"empty segments", []byte("x"), []Option{WithSegments()}, ErrEmptySegments},
@@ -162,6 +174,22 @@ func TestErrors(t *testing.T) {
 		if _, err := New(tc.data, tc.opts...); !errors.Is(err, tc.want) {
 			t.Errorf("%s: err = %v, want %v", tc.name, err, tc.want)
 		}
+	}
+}
+
+func TestMaxCapacityBoundary(t *testing.T) {
+	// Version 40-L numeric capacity is exactly 7089 digits; one more cannot fit
+	// in any symbol and must be rejected.
+	max := strings.Repeat("1", 7089)
+	q, err := NewString(max, WithLevel(Low))
+	if err != nil {
+		t.Fatalf("max capacity: %v", err)
+	}
+	if q.Version() != 40 {
+		t.Fatalf("version = %d, want 40", q.Version())
+	}
+	if _, err := NewString(max+"1", WithLevel(Low)); !errors.Is(err, ErrTooLong) {
+		t.Fatalf("over capacity: err = %v, want ErrTooLong", err)
 	}
 }
 

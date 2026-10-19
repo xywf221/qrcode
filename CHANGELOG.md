@@ -21,6 +21,17 @@ project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 ### Fixed
 
+- `Structured` no longer rejects numeric or alphanumeric messages that exceed a
+  byte-mode estimate of sixteen symbols' capacity; the precheck now uses a
+  mode-aware lower bound. It also reports `ErrStructuredOption` when passed
+  `WithSegments` or `WithStructuredAppend`, instead of silently ignoring them.
+- PNG and SVG rendering preserve the alpha channel of `WithColor` values: PNG
+  emits a `tRNS` chunk and SVG a `fill-opacity` attribute, rather than
+  premultiplying translucent colours into opaque ones.
+- Out-of-range options are rejected instead of silently clamped or ignored:
+  `WithMask` below -1 returns `ErrBadMask`, versions outside `[1,40]` return
+  `ErrBadVersion`, and `WithStructuredAppend` with total 0 returns
+  `ErrStructuredAppend`.
 - Kanji segments now reject Shift-JIS pairs whose low byte is below `0x40`
   (e.g. `0x9330`). Such codes pass the JIS X 0208 range test but are not
   reversible through the 13-bit Kanji encoding and previously decoded back as a

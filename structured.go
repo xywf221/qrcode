@@ -30,15 +30,17 @@ func (h *saHeader) write(bb *bitBuffer) {
 func WithStructuredAppend(index, total int, parity byte) Option {
 	return func(c *config) {
 		c.saIndex, c.saTotal, c.saParity = index, total, int(parity)
+		c.saSet = true
 	}
 }
 
 // Structured encodes data across one or more QR symbols using Structured
 // Append, allowing a single message to exceed the capacity of one symbol. All
 // symbols share one version and error-correction level; the returned slice is
-// in sequence order. The message is split into at most 16 symbols, and
-// ErrTooManySymbols is returned if it does not fit. When data fits in a single
-// symbol the result has length one.
+// in sequence order. The planner uses the smallest version that splits the
+// message into at most 16 symbols and returns ErrTooManySymbols if none does.
+// WithSegments and WithStructuredAppend are not supported and return
+// ErrStructuredOption.
 func Structured(data []byte, opts ...Option) ([]*QR, error) {
 	cfg := defaultConfig()
 	for _, o := range opts {
@@ -46,12 +48,19 @@ func Structured(data []byte, opts ...Option) ([]*QR, error) {
 	}
 	cfg.boostECL = false // keep every symbol at the same level
 
-	if err := cfg.normalizeAndValidate(); err != nil {
+	if err := cfg.validate(); err != nil {
 		return nil, err
 	}
+	// Structured computes its own header and segmentation, so caller-supplied
+	// segments or headers cannot be honoured.
+	if cfg.explicitSeg || cfg.saSet {
+		return nil, ErrStructuredOption
+	}
 
-	// Sixteen version-40 symbols bound the largest possible message.
-	if maxBytes := 16 * (dataBits(40, cfg.level) / 8); len(data) > maxBytes {
+	// Sixteen version-40 symbols bound the largest possible message. Compare a
+	// mode-aware lower bound: a byte-based estimate would reject numeric and
+	// alphanumeric messages, which encode in under eight bits per character.
+	if structuredBitsLowerBound(data) > 16*int64(dataBits(40, cfg.level)) {
 		return nil, ErrTooManySymbols
 	}
 
@@ -86,6 +95,26 @@ func Structured(data []byte, opts ...Option) ([]*QR, error) {
 // StructuredString is Structured for a UTF-8 string.
 func StructuredString(text string, opts ...Option) ([]*QR, error) {
 	return Structured([]byte(text), opts...)
+}
+
+// structuredBitsLowerBound returns a lower bound on the bits needed to encode
+// data with automatic segmentation: three bits per digit, five per
+// alphanumeric character, and eight per other byte. Per-segment overheads and
+// group rounding only add bits, so a bound above the total capacity proves the
+// message cannot fit.
+func structuredBitsLowerBound(data []byte) int64 {
+	var bits int64
+	for _, c := range data {
+		switch {
+		case c >= '0' && c <= '9':
+			bits += 10 / 3
+		case alnumValue[c] >= 0:
+			bits += 11 / 2
+		default:
+			bits += 8
+		}
+	}
+	return bits
 }
 
 // splitStructured partitions data into the largest chunks that each fit one

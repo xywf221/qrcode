@@ -2,17 +2,25 @@ package qrcode
 
 import (
 	"bytes"
+	"errors"
 	"testing"
 )
+
+// allowedEncodeError reports whether err is a legitimate rejection for
+// arbitrary input, as opposed to a regression that rejects everything.
+func allowedEncodeError(err error) bool {
+	return errors.Is(err, ErrTooLong) || errors.Is(err, ErrTooManySymbols) ||
+		errors.Is(err, ErrInvalidSegment) || errors.Is(err, ErrEmptySegments)
+}
 
 // FuzzEncode checks that arbitrary input never panics the encoder and that any
 // successfully encoded symbol satisfies its structural invariants and can be
 // rendered by every renderer.
 func FuzzEncode(f *testing.F) {
-	f.Add([]byte("HELLO WORLD"), uint8(Low), uint8(40))
-	f.Add([]byte("1234567890"), uint8(High), uint8(5))
-	f.Add([]byte("https://example.com/\x00\xff"), uint8(Quartile), uint8(40))
-	f.Add([]byte(""), uint8(Medium), uint8(1))
+	f.Add([]byte("HELLO WORLD"), uint8(Low), uint8(39))
+	f.Add([]byte("1234567890"), uint8(High), uint8(4))
+	f.Add([]byte("https://example.com/\x00\xff"), uint8(Quartile), uint8(39))
+	f.Add([]byte(""), uint8(Medium), uint8(0))
 
 	f.Fuzz(func(t *testing.T, data []byte, level, maxVer uint8) {
 		lv := Level(level % 4)
@@ -20,7 +28,10 @@ func FuzzEncode(f *testing.F) {
 
 		q, err := New(data, WithLevel(lv), WithMaxVersion(ver))
 		if err != nil {
-			return // ErrTooLong is an acceptable, non-panicking outcome.
+			if !allowedEncodeError(err) {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			return
 		}
 		if got, want := q.Size(), 4*q.Version()+17; got != want {
 			t.Fatalf("size = %d, want %d", got, want)
@@ -101,7 +112,10 @@ func FuzzExplicitSegments(f *testing.F) {
 		}
 		q, err := New(nil, WithSegments(seg), WithLevel(Level((modeSel>>2)%4)))
 		if err != nil {
-			return // an invalid or oversized segment is an acceptable outcome.
+			if !allowedEncodeError(err) {
+				t.Fatalf("unexpected error: %v", err)
+			}
+			return
 		}
 		d, err := decodeSymbol(q)
 		if err != nil {
@@ -116,15 +130,23 @@ func FuzzExplicitSegments(f *testing.F) {
 // FuzzECI checks that any valid ECI designator round-trips, and that an
 // out-of-range designator is rejected without panicking.
 func FuzzECI(f *testing.F) {
-	f.Add([]byte("café"), uint32(26), uint8(Quartile), uint8(40))
-	f.Add([]byte("hello"), uint32(0), uint8(Low), uint8(5))
-	f.Add([]byte("x"), uint32(16384), uint8(High), uint8(1))
+	f.Add([]byte("café"), uint32(26), uint8(Quartile), uint8(39))
+	f.Add([]byte("hello"), uint32(0), uint8(Low), uint8(4))
+	f.Add([]byte("x"), uint32(16384), uint8(High), uint8(0))
+	f.Add([]byte("x"), uint32(1000000), uint8(Low), uint8(0))
 
 	f.Fuzz(func(t *testing.T, data []byte, eci uint32, level, maxVer uint8) {
-		designator := int(eci % 1000000)
+		// Keep the full uint32 range: values above 999999 must be rejected.
+		designator := int(eci)
 		q, err := New(data, WithECI(designator), WithLevel(Level(level%4)), WithMaxVersion(int(maxVer%40)+1))
 		if err != nil {
+			if !errors.Is(err, ErrBadECI) && !allowedEncodeError(err) {
+				t.Fatalf("unexpected error: %v", err)
+			}
 			return
+		}
+		if designator > 999999 {
+			t.Fatalf("designator %d accepted", designator)
 		}
 		d, err := decodeSymbol(q)
 		if err != nil {
@@ -149,10 +171,13 @@ func FuzzKanjiString(f *testing.F) {
 	f.Fuzz(func(t *testing.T, s string) {
 		seg, err := NewKanjiString(s)
 		if err != nil {
-			return
+			return // the string is not representable in Kanji mode
 		}
 		q, err := NewString("", WithSegments(seg), WithLevel(Medium))
 		if err != nil {
+			if !allowedEncodeError(err) {
+				t.Fatalf("unexpected error: %v", err)
+			}
 			return
 		}
 		d, err := decodeSymbol(q)
@@ -168,13 +193,17 @@ func FuzzKanjiString(f *testing.F) {
 // FuzzStructured checks that Structured Append splits, headers and reassembly
 // are self-consistent for arbitrary messages.
 func FuzzStructured(f *testing.F) {
-	f.Add([]byte("HELLO"), uint8(Low), uint8(40))
-	f.Add(bytes.Repeat([]byte("abcdef"), 50), uint8(Quartile), uint8(40))
-	f.Add([]byte{}, uint8(Medium), uint8(10))
+	f.Add([]byte("HELLO"), uint8(Low), uint8(39))
+	f.Add(bytes.Repeat([]byte("abcdef"), 50), uint8(Quartile), uint8(39))
+	f.Add([]byte{}, uint8(Medium), uint8(9))
+	f.Add(bytes.Repeat([]byte{0x80}, 15*16), uint8(Low), uint8(0))
 
 	f.Fuzz(func(t *testing.T, data []byte, level, maxVer uint8) {
 		qs, err := Structured(data, WithLevel(Level(level%4)), WithMaxVersion(int(maxVer%40)+1))
 		if err != nil {
+			if !allowedEncodeError(err) {
+				t.Fatalf("unexpected error: %v", err)
+			}
 			return
 		}
 		if len(qs) < 1 || len(qs) > 16 {
@@ -204,13 +233,16 @@ func FuzzStructured(f *testing.F) {
 
 // FuzzMask checks that a forced mask is honoured and round-trips.
 func FuzzMask(f *testing.F) {
-	f.Add([]byte("hello world"), uint8(Quartile), uint8(0), uint8(40))
-	f.Add([]byte("123"), uint8(Low), uint8(7), uint8(1))
+	f.Add([]byte("hello world"), uint8(Quartile), uint8(0), uint8(39))
+	f.Add([]byte("123"), uint8(Low), uint8(7), uint8(0))
 
 	f.Fuzz(func(t *testing.T, data []byte, level, mask, maxVer uint8) {
 		m := int(mask % 8)
 		q, err := New(data, WithLevel(Level(level%4)), WithMask(m), WithMaxVersion(int(maxVer%40)+1))
 		if err != nil {
+			if !allowedEncodeError(err) {
+				t.Fatalf("unexpected error: %v", err)
+			}
 			return
 		}
 		if q.Mask() != m {

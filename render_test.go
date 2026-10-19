@@ -44,6 +44,7 @@ func TestPNGMatchesStdlib(t *testing.T) {
 		{WithScale(1), WithQuietZone(0)},
 		{WithScale(8), WithInvert(true)},
 		{WithColor(red, color.White), WithScale(2)},
+		{WithColor(color.NRGBA{R: 0xff, A: 0x80}, color.NRGBA{G: 0xff, A: 0x40}), WithScale(2)},
 	} {
 		got, err := q.PNG(opts...)
 		if err != nil {
@@ -67,9 +68,9 @@ func TestPNGMatchesStdlib(t *testing.T) {
 		b := gi.Bounds()
 		for y := b.Min.Y; y < b.Max.Y; y++ {
 			for x := b.Min.X; x < b.Max.X; x++ {
-				gr, gg, gb, _ := gi.At(x, y).RGBA()
-				wr, wg, wb, _ := wi.At(x, y).RGBA()
-				if gr != wr || gg != wg || gb != wb {
+				gr, gg, gb, ga := gi.At(x, y).RGBA()
+				wr, wg, wb, wa := wi.At(x, y).RGBA()
+				if gr != wr || gg != wg || gb != wb || ga != wa {
 					t.Fatalf("opts=%v: pixel (%d,%d) = %v, want %v", opts, x, y, gi.At(x, y), wi.At(x, y))
 				}
 			}
@@ -151,6 +152,46 @@ func TestPNGColor(t *testing.T) {
 				break
 			}
 		}
+	}
+}
+
+func TestPNGAlphaColor(t *testing.T) {
+	q := mustEncode(t, "hello")
+	fg := color.NRGBA{R: 0xff, G: 0x11, A: 0x80}
+	data, err := q.PNG(WithColor(fg, color.White), WithScale(1), WithQuietZone(0))
+	if err != nil {
+		t.Fatal(err)
+	}
+	img, err := png.Decode(bytes.NewReader(data))
+	if err != nil {
+		t.Fatal(err)
+	}
+	for y := 0; y < q.Size(); y++ {
+		for x := 0; x < q.Size(); x++ {
+			if !q.Module(x, y) {
+				continue
+			}
+			if got := color.NRGBAModel.Convert(img.At(x, y)).(color.NRGBA); got != fg {
+				t.Fatalf("dark module (%d,%d) = %+v, want %+v", x, y, got, fg)
+			}
+			return
+		}
+	}
+	t.Fatal("no dark module found")
+}
+
+func TestSVGAlphaColor(t *testing.T) {
+	q := mustEncode(t, "hello")
+	svg := q.SVG(WithColor(color.NRGBA{R: 0xff, A: 0x80}, color.NRGBA{B: 0xff, A: 0}))
+	if strings.Count(svg, "fill-opacity=") != 2 {
+		t.Fatalf("expected two fill-opacity attributes, got %d", strings.Count(svg, "fill-opacity="))
+	}
+	if !strings.Contains(svg, `fill="#ff0000"`) || !strings.Contains(svg, `fill="#0000ff"`) {
+		t.Fatalf("RGB values missing from %s", svg)
+	}
+	opaque := q.SVG(WithColor(color.RGBA{R: 0xff, A: 0xff}, color.White))
+	if strings.Contains(opaque, "fill-opacity=") {
+		t.Fatal("opaque colours emitted fill-opacity")
 	}
 }
 

@@ -25,6 +25,12 @@ jobs:
         run: go build ./...
       - name: Vet
         run: go vet ./...
+      - name: Check formatting
+        if: runner.os == 'Linux'
+        run: test -z "$(gofmt -l .)" || (gofmt -l . && exit 1)
+      - name: Build generator module
+        if: runner.os == 'Linux'
+        run: cd internal/sjisgen && go build ./... && go vet ./...
       - name: Test (race)
         run: go test -race ./...
 
@@ -52,3 +58,13 @@ jobs:
         run: go test -run '^$' -fuzz FuzzEncode -fuzztime 30s .
       - name: Fuzz penalty
         run: go test -run '^$' -fuzz FuzzPenalty -fuzztime 15s .
+      - name: Fuzz explicit segments
+        run: go test -run '^$' -fuzz FuzzExplicitSegments -fuzztime 10s .
+      - name: Fuzz ECI
+        run: go test -run '^$' -fuzz FuzzECI -fuzztime 10s .
+      - name: Fuzz Kanji
+        run: go test -run '^$' -fuzz FuzzKanjiString -fuzztime 10s .
+      - name: Fuzz structured append
+        run: go test -run '^$' -fuzz FuzzStructured -fuzztime 10s .
+      - name: Fuzz mask
+        run: go test -run '^$' -fuzz FuzzMask -fuzztime 10s .

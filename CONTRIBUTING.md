@@ -43,9 +43,10 @@ relevant.
 `golang.org/x/text`):
 
 ```sh
-go run ./internal/sjisgen > sjis_table.go
-gofmt -w sjis_table.go
+cd internal/sjisgen
+go run . > ../../sjis_table.go
+gofmt -w ../../sjis_table.go
 ```
 
-The generator is excluded from the module's regular build via a build tag, so it
-adds no dependency to the library itself.
+`internal/sjisgen` is a nested module with its own `go.mod`, so its
+`golang.org/x/text` dependency never reaches the library build.

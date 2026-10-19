@@ -81,6 +81,63 @@ func naivePenalty(mods []byte, size int) int {
 	return res
 }
 
+// unmaskedBuilder builds a symbol through the normal pipeline but stops before
+// mask selection, so tests can evaluate every candidate from the same state.
+func unmaskedBuilder(t *testing.T, text string, level Level) *builder {
+	t.Helper()
+	cfg := defaultConfig()
+	cfg.level = level
+	cfg.boostECL = false
+	segs, ver, err := layout([]byte(text), &cfg)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cw, err := assembleCodewords(segs, ver, level, -1, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	b := newBuilder(ver, level)
+	b.drawFunctionPatterns()
+	b.placeCodewords(cw)
+	return b
+}
+
+// TestPenaltyMaskMatchesApply checks the masked-copy scorer against the
+// straightforward "apply the mask, then score" path, and selectMask against a
+// naive search over the same eight candidates.
+func TestPenaltyMaskMatchesApply(t *testing.T) {
+	base := unmaskedBuilder(t, "https://example.com/some/path?query=value&x=1", Quartile)
+
+	for m := 0; m < 8; m++ {
+		base.drawFormatBits(m)
+		got := base.penaltyMask(m)
+
+		naive := newBuilder(base.version, base.level)
+		naive.drawFunctionPatterns()
+		copy(naive.modules, base.modules)
+		naive.applyMask(m)
+		if want := naive.penalty(); got != want {
+			t.Errorf("mask %d: penaltyMask = %d, apply+penalty = %d", m, got, want)
+		}
+	}
+
+	// selectMask must return an argmin of the naive scores.
+	best, bestPen := 0, maxInt
+	for m := 0; m < 8; m++ {
+		naive := newBuilder(base.version, base.level)
+		naive.drawFunctionPatterns()
+		copy(naive.modules, base.modules)
+		naive.drawFormatBits(m)
+		naive.applyMask(m)
+		if p := naive.penalty(); p < bestPen {
+			best, bestPen = m, p
+		}
+	}
+	if got := base.selectMask(); got != best {
+		t.Errorf("selectMask = %d, want %d", got, best)
+	}
+}
+
 func TestPenaltyMatchesNaive(t *testing.T) {
 	rng := rand.New(rand.NewSource(7))
 	for _, size := range []int{21, 25, 45, 69, 97} {

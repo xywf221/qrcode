@@ -28,13 +28,13 @@ func (q *QR) SVG(opts ...RenderOption) string {
 	b.WriteString(strconv.Itoa(px))
 	b.WriteString(`" shape-rendering="crispEdges">`)
 
-	b.WriteString(`<rect width="100%" height="100%" fill="`)
-	writeHex(&b, rc.background)
-	b.WriteString(`"/>`)
+	b.WriteString(`<rect width="100%" height="100%" `)
+	writeFill(&b, rc.background)
+	b.WriteString(`/>`)
 
-	b.WriteString(`<path fill="`)
-	writeHex(&b, rc.foreground)
-	b.WriteString(`" d="`)
+	b.WriteString(`<path `)
+	writeFill(&b, rc.foreground)
+	b.WriteString(` d="`)
 	for y := 0; y < n; y++ {
 		for x := 0; x < n; {
 			if !q.darkAt(rc, x, y) {
@@ -66,12 +66,18 @@ func (q *QR) WriteSVG(w io.Writer, opts ...RenderOption) error {
 	return err
 }
 
-func writeHex(b *strings.Builder, c color.Color) {
-	r, g, bl, _ := c.RGBA()
-	b.WriteByte('#')
-	writeByteHex(b, uint8(r>>8))
-	writeByteHex(b, uint8(g>>8))
-	writeByteHex(b, uint8(bl>>8))
+func writeFill(b *strings.Builder, c color.Color) {
+	n := color.NRGBAModel.Convert(c).(color.NRGBA)
+	b.WriteString(`fill="#`)
+	writeByteHex(b, n.R)
+	writeByteHex(b, n.G)
+	writeByteHex(b, n.B)
+	b.WriteByte('"')
+	if n.A != 0xff {
+		b.WriteString(` fill-opacity="`)
+		b.WriteString(strconv.FormatFloat(float64(n.A)/0xff, 'f', -1, 64))
+		b.WriteByte('"')
+	}
 }
 
 func writeByteHex(b *strings.Builder, v uint8) {

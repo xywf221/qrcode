@@ -59,6 +59,18 @@ func TestGolden(t *testing.T) {
 		if got := fmt.Sprintf("%x", sha256.Sum256(q.Bitmap())); got != g.hash {
 			t.Errorf("%q %v: module hash = %s, want %s", g.text, g.level, got, g.hash)
 		}
+		// Decode each case so the hash is backed by an independent round-trip.
+		d, err := decodeSymbol(q)
+		if err != nil {
+			t.Fatalf("%q %v: decode: %v", g.text, g.level, err)
+		}
+		if !bytes.Equal(d.payload, []byte(g.text)) {
+			t.Errorf("%q %v: payload = %q", g.text, g.level, d.payload)
+		}
+		if d.level != g.level || d.mask != g.mask {
+			t.Errorf("%q %v: decoded level %v mask %d, want %v %d",
+				g.text, g.level, d.level, d.mask, g.level, g.mask)
+		}
 	}
 }
 

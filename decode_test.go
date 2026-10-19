@@ -31,6 +31,9 @@ func decodeSymbol(q *QR) (decoded, error) {
 	ver := (size - 17) / 4
 	fm := decodeFuncMap(ver, size)
 
+	if err := decodeVersion(q.modules, size, ver); err != nil {
+		return decoded{}, err
+	}
 	level, mask, err := decodeFormat(q.modules, size)
 	if err != nil {
 		return decoded{}, err
@@ -112,6 +115,31 @@ func decodeFuncMap(ver, size int) []bool {
 		}
 	}
 	return fm
+}
+
+// decodeVersion reads both copies of the 18-bit version information for v7+
+// and checks they agree with the version implied by the symbol size.
+func decodeVersion(mods []byte, size, ver int) error {
+	if ver < 7 {
+		return nil
+	}
+	at := func(x, y int) uint32 { return uint32(mods[y*size+x] & 1) }
+
+	var first uint32
+	for i := 0; i < 18; i++ {
+		first |= at(size-11+i%3, i/3) << uint(i)
+	}
+	var second uint32
+	for i := 0; i < 18; i++ {
+		second |= at(i/3, size-11+i%3) << uint(i)
+	}
+	if first != second {
+		return fmt.Errorf("%w: version copies disagree", errDecode)
+	}
+	if first != versionInfo(ver) {
+		return fmt.Errorf("%w: version info = %018b, want %018b", errDecode, first, versionInfo(ver))
+	}
+	return nil
 }
 
 // decodeFormat reads both copies of the format information and matches them
@@ -516,12 +544,97 @@ func TestStructuredAppendSmallMessage(t *testing.T) {
 	}
 }
 
+func TestDecodeVersionRangeBoundaries(t *testing.T) {
+	// The character-count indicator widens at versions 10 and 27, so the
+	// encoder and the decoder must agree at both boundaries in every mode.
+	segs := map[string]func() Segment{
+		"numeric": func() Segment { return NewNumeric("123456789012345678901234567890") },
+		"alnum":   func() Segment { return NewAlphanumeric("HELLO WORLD 123") },
+		"byte":    func() Segment { return NewBytes([]byte("boundary payload")) },
+		"kanji":   func() Segment { return NewKanji([]byte{0x93, 0x5F, 0x8E, 0x9A}) },
+	}
+	for _, ver := range []int{9, 10, 26, 27, 40} {
+		for name, mk := range segs {
+			seg := mk()
+			q, err := New(nil, WithSegments(seg), WithVersion(ver), WithLevel(Low), WithBoostECL(false))
+			if err != nil {
+				t.Fatalf("v%d %s: %v", ver, name, err)
+			}
+			d, err := decodeSymbol(q)
+			if err != nil {
+				t.Fatalf("v%d %s: decode: %v", ver, name, err)
+			}
+			if !bytes.Equal(d.payload, seg.s.data) {
+				t.Fatalf("v%d %s: payload = % x, want % x", ver, name, d.payload, seg.s.data)
+			}
+		}
+	}
+}
+
+func TestStructuredAppendWithECI(t *testing.T) {
+	msg := []byte(strings.Repeat("café ", 80))
+	qs, err := Structured(msg, WithECI(26), WithLevel(Medium))
+	if err != nil {
+		t.Fatal(err)
+	}
+	var got []byte
+	for i, q := range qs {
+		d, err := decodeSymbol(q)
+		if err != nil {
+			t.Fatalf("decode symbol %d: %v", i, err)
+		}
+		if d.eci != 26 {
+			t.Fatalf("symbol %d: eci = %d, want 26", i, d.eci)
+		}
+		if d.sa == nil || d.sa.index != i || d.sa.total != len(qs) {
+			t.Fatalf("symbol %d: header = %+v", i, d.sa)
+		}
+		got = append(got, d.payload...)
+	}
+	if !bytes.Equal(got, msg) {
+		t.Fatalf("reassembled payload mismatch: got %d bytes, want %d", len(got), len(msg))
+	}
+}
+
+func TestStructuredDenseModesExceedByteBound(t *testing.T) {
+	// Both messages exceed sixteen version-40 symbols in byte mode but fit
+	// because numeric and alphanumeric modes pack more characters per bit.
+	for _, data := range []string{
+		strings.Repeat("1234567890", 4800),
+		strings.Repeat("ABCDEFGHIJ", 4800),
+	} {
+		// Version 40 keeps the test to a single split; the regression under test
+		// is the capacity precheck, not version selection.
+		qs, err := StructuredString(data, WithLevel(Low), WithVersion(40))
+		if err != nil {
+			t.Fatalf("%d chars: %v", len(data), err)
+		}
+		var got []byte
+		for i, q := range qs {
+			d, err := decodeSymbol(q)
+			if err != nil {
+				t.Fatalf("%d chars: decode symbol %d: %v", len(data), i, err)
+			}
+			if d.sa == nil || d.sa.index != i || d.sa.total != len(qs) {
+				t.Fatalf("%d chars: symbol %d header = %+v", len(data), i, d.sa)
+			}
+			got = append(got, d.payload...)
+		}
+		if string(got) != data {
+			t.Fatalf("%d chars: reassembled %d bytes", len(data), len(got))
+		}
+	}
+}
+
 func TestStructuredAppendErrors(t *testing.T) {
 	if _, err := New([]byte("x"), WithStructuredAppend(2, 2, 0)); !errors.Is(err, ErrStructuredAppend) {
 		t.Errorf("index >= total: err = %v, want ErrStructuredAppend", err)
 	}
 	if _, err := New([]byte("x"), WithStructuredAppend(0, 17, 0)); !errors.Is(err, ErrStructuredAppend) {
 		t.Errorf("total > 16: err = %v, want ErrStructuredAppend", err)
+	}
+	if _, err := New([]byte("x"), WithStructuredAppend(0, 0, 0)); !errors.Is(err, ErrStructuredAppend) {
+		t.Errorf("total == 0: err = %v, want ErrStructuredAppend", err)
 	}
 	// A message far too large to fit in sixteen version-40 symbols.
 	if _, err := Structured(make([]byte, 100000), WithLevel(High)); !errors.Is(err, ErrTooManySymbols) {

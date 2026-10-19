@@ -103,6 +103,7 @@ var (
 
 	ErrStructuredAppend = errors.New("qrcode: invalid structured-append header")
 	ErrTooManySymbols   = errors.New("qrcode: data needs more than 16 structured-append symbols")
+	ErrStructuredOption = errors.New("qrcode: option not supported by Structured")
 )
 
 // A QR is an encoded, immutable QR symbol. All of its methods are safe for
@@ -153,10 +154,11 @@ type config struct {
 	segments    []segment
 	explicitSeg bool
 
-	// Structured Append header fields; saTotal == 0 means "no header".
+	// Structured Append header fields; saTotal == 0 means no header.
 	saIndex  int
 	saTotal  int
 	saParity int
+	saSet    bool // WithStructuredAppend was supplied
 }
 
 func defaultConfig() config {
@@ -188,23 +190,16 @@ func (c *config) saBits() int {
 	return saHeaderBits
 }
 
-// normalizeAndValidate clamps the version range into [1,40] and rejects an
-// invalid level, version range or mask, in place. It is the single place that
-// enforces these constraints, shared by build and Structured.
-func (c *config) normalizeAndValidate() error {
+// validate rejects an invalid level, version range or mask. It is the single
+// place that enforces these constraints, shared by build and Structured.
+func (c *config) validate() error {
 	if c.level > High {
 		return ErrBadLevel
 	}
-	if c.minVersion < 1 {
-		c.minVersion = 1
-	}
-	if c.maxVersion > 40 {
-		c.maxVersion = 40
-	}
-	if c.minVersion > c.maxVersion || c.maxVersion < 1 || c.minVersion > 40 {
+	if c.minVersion < 1 || c.maxVersion > 40 || c.minVersion > c.maxVersion {
 		return ErrBadVersion
 	}
-	if c.mask > 7 {
+	if c.mask < -1 || c.mask > 7 {
 		return ErrBadMask
 	}
 	if c.eci < -1 || c.eci > 999999 {
@@ -277,10 +272,10 @@ func newQR(data []byte, opts []Option) (*QR, error) {
 
 // build runs the encoding pipeline on an already-resolved configuration.
 func build(data []byte, cfg *config) (*QR, error) {
-	if err := cfg.normalizeAndValidate(); err != nil {
+	if err := cfg.validate(); err != nil {
 		return nil, err
 	}
-	if cfg.saTotal != 0 {
+	if cfg.saSet || cfg.saTotal != 0 {
 		if cfg.saTotal < 1 || cfg.saTotal > 16 || cfg.saIndex < 0 || cfg.saIndex >= cfg.saTotal ||
 			cfg.saParity < 0 || cfg.saParity > 0xFF {
 			return nil, ErrStructuredAppend

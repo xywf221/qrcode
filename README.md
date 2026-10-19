@@ -35,8 +35,8 @@ if err := q.WritePNG(w); err != nil {
   error-correction level for extra robustness.
 - **Structured Append.** Messages larger than one symbol are split across up to
   16 symbols with the standard sequence header and parity, via `Structured`.
-- **Renderers.** PNG (`image/png`), compact SVG, half-block terminal text, and a
-  raw module-matrix API.
+- **Renderers.** Indexed PNG (hand-rolled encoder, no `image/png`), compact SVG,
+  half-block terminal text, and a raw module-matrix API.
 - **No dependencies** beyond the standard library. Encoded `*QR` values are
   immutable and safe for concurrent use.
 
@@ -139,14 +139,15 @@ fmt.Print(q.Terminal(qrcode.WithQuietZone(2)))    // half-block text
 | --- | --- |
 | `WithScale(px)` | Pixel size of one module (PNG/SVG). Default `4`. |
 | `WithQuietZone(modules)` | Light margin around the symbol. Default `4`. |
-| `WithColor(fg, bg)` | Foreground (dark) and background colours. |
+| `WithColor(fg, bg)` | Foreground (dark) and background colours; alpha is preserved in PNG and SVG. |
 | `WithInvert(bool)` | Swap dark and light; useful on dark terminals. |
 
 ## Errors
 
 Encode failures return one of the sentinel errors `ErrTooLong`, `ErrBadVersion`,
-`ErrBadLevel`, `ErrBadMask`, `ErrInvalidSegment`, `ErrEmptySegments`,
-`ErrStructuredAppend`, or `ErrTooManySymbols` (match with `errors.Is`).
+`ErrBadLevel`, `ErrBadMask`, `ErrBadECI`, `ErrInvalidSegment`,
+`ErrEmptySegments`, `ErrStructuredAppend`, `ErrTooManySymbols`, or
+`ErrStructuredOption` (match with `errors.Is`).
 
 ## Testing and benchmarks
 

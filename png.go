@@ -59,10 +59,11 @@ func (q *QR) pngBytes(rc renderConfig) []byte {
 	ihdr[9] = 3 // colour type: indexed
 	out = appendChunk(out, "IHDR", ihdr[:])
 
-	var plte [6]byte
-	putRGB(plte[0:3], rc.background)
-	putRGB(plte[3:6], rc.foreground)
+	plte, trns := pngPalette(rc.background, rc.foreground)
 	out = appendChunk(out, "PLTE", plte[:])
+	if trns != nil {
+		out = appendChunk(out, "tRNS", trns)
+	}
 
 	// Each scanline is a filter byte (0, None) followed by bpr packed bits.
 	// Every module row is packed once and copied to its scale output rows, so
@@ -130,7 +131,22 @@ func deflate(raw []byte) []byte {
 	return z.Bytes()
 }
 
-func putRGB(dst []byte, c color.Color) {
-	r, g, b, _ := c.RGBA()
-	dst[0], dst[1], dst[2] = uint8(r>>8), uint8(g>>8), uint8(b>>8)
+// pngPalette converts the background and foreground colours to indexed-PNG
+// entries. PLTE holds straight (unassociated) RGB; when either colour is
+// translucent, tRNS holds the alpha values, truncated after the last
+// translucent entry as the standard library's encoder does.
+func pngPalette(bg, fg color.Color) ([6]byte, []byte) {
+	c0 := color.NRGBAModel.Convert(bg).(color.NRGBA)
+	c1 := color.NRGBAModel.Convert(fg).(color.NRGBA)
+	var plte [6]byte
+	plte[0], plte[1], plte[2] = c0.R, c0.G, c0.B
+	plte[3], plte[4], plte[5] = c1.R, c1.G, c1.B
+	switch {
+	case c1.A != 0xff:
+		return plte, []byte{c0.A, c1.A}
+	case c0.A != 0xff:
+		return plte, []byte{c0.A}
+	default:
+		return plte, nil
+	}
 }
